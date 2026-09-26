@@ -5,100 +5,116 @@ können. Du genehmigst jeden Auftrag, sortierst die Warteschlange, und die
 **obersten 3 Aufträge** werden automatisch in deinen **Discord-Kanal**
 geschickt – aber **nur, wenn sich an ihnen etwas ändert**.
 
+Läuft mit **Node.js** (ab Version 18), z. B. direkt in **Plesk**. Es wird keine
+Datenbank gebraucht – alles liegt in kleinen Dateien im Ordner `data/`.
+
 ## So funktioniert's
 
 1. **Einreichen** – Auf der Startseite gibt jemand seinen Namen ein und
    - fügt einen **MakerWorld-Link** ein (Titel darf dann leer bleiben), oder
    - beschreibt ohne Link, was gedruckt werden soll. Solche Aufträge sind überall
-     mit **„kein Link“** markiert, damit du weißt: Das Modell musst du selbst
-     besorgen oder erstellen.
-   Dazu kommen noch Anzahl, Farbe/Material und Wünsche.
+     mit **„kein Link“** markiert: Das Modell musst du selbst besorgen oder erstellen.
+
+   Dazu kommen Anzahl, Farbe/Material und Wünsche.
 2. **Genehmigen** – Unter `/admin` siehst du alle neuen Anfragen und kannst sie
    **genehmigen**, **bearbeiten** (z. B. selbst einen Link nachtragen oder eine
    Notiz wie „PETG, 0,2 mm“ dazuschreiben) oder **ablehnen**.
 3. **Warteschlange** – Genehmigte Aufträge werden hinten angehängt. Mit
    ⤒ ↑ ↓ ⤓ änderst du die Reihenfolge, mit **✓ Gedruckt** ist ein Auftrag fertig.
-   Du kannst auch eigene Aufträge direkt in die Warteschlange legen.
+   Eigene Aufträge kannst du direkt in die Warteschlange legen.
 4. **Discord** – Nach jeder Änderung wird geprüft, ob sich die obersten 3
    geändert haben (andere Aufträge, andere Reihenfolge oder geänderte Details).
-   Nur dann kommt eine neue Nachricht. Rutscht zum Beispiel ein neuer Auftrag
-   auf Platz 5, bleibt Discord ruhig.
+   Nur dann kommt eine neue Nachricht. Rutscht z. B. ein neuer Auftrag auf
+   Platz 5, bleibt Discord ruhig.
 
-Die Familie sieht auf der Startseite die aktuelle Warteschlange, was noch auf
-Genehmigung wartet, und was zuletzt gedruckt wurde.
-
-## Einrichten
+## Einrichten in Plesk
 
 ### 1. Discord-Webhook anlegen
 
-In Discord: Rechtsklick auf den gewünschten Kanal → **Kanal bearbeiten** →
-**Integrationen** → **Webhooks** → **Neuer Webhook** → **Webhook-URL kopieren**.
+In Discord: Rechtsklick auf den Kanal → **Kanal bearbeiten** → **Integrationen**
+→ **Webhooks** → **Neuer Webhook** → **Webhook-URL kopieren**.
 
-### 2. Konfiguration
+Die URL ist wie ein Passwort: Wer sie hat, kann in deinen Kanal schreiben. Sie
+gehört **nie** in den Code oder auf GitHub, sondern nur in die Einstellungen
+unten. Falls sie doch mal öffentlich wird: Webhook in Discord löschen und neu
+anlegen.
 
-```bash
-cp .env.example .env
-```
+### 2. Domain vorbereiten
 
-In der `.env` mindestens `ADMIN_PASSWORD` und `DISCORD_WEBHOOK_URL` eintragen.
-Wenn die Seite aus dem Internet erreichbar ist, solltest du außerdem ein
-`FAMILY_PASSWORD` setzen – dann muss man es einmal pro Gerät eingeben, bevor man
-etwas sehen oder einreichen kann.
+Am besten eine eigene Subdomain anlegen, z. B. `druck.deine-domain.de`
+(**Websites & Domains → Subdomain hinzufügen**). Unter **SSL/TLS-Zertifikate**
+gleich ein kostenloses **Let's Encrypt**-Zertifikat aktivieren.
 
-| Variable | Bedeutung |
+### 3. Code hochladen
+
+Entweder mit der **Git**-Funktion von Plesk (Repository-URL eintragen, Branch
+wählen, in den Ordner der Domain bereitstellen) – oder auf GitHub **Code →
+Download ZIP**, dann in Plesk unter **Dateien** in den Ordner der Domain
+hochladen und entpacken. Danach sollten dort `app.js`, `package.json`, `src/`
+und `public/` liegen.
+
+### 4. Node.js einstellen
+
+In Plesk bei der Domain auf **Node.js** klicken und eintragen:
+
+| Einstellung | Wert |
 | --- | --- |
-| `ADMIN_PASSWORD` | Passwort für `/admin` (Pflicht) |
-| `FAMILY_PASSWORD` | Optionales Passwort für die Familie; leer = offen |
-| `DISCORD_WEBHOOK_URL` | Webhook-URL des Discord-Kanals |
-| `DISCORD_TOP_N` | Wie viele Aufträge gemeldet werden (Standard `3`) |
-| `PUBLIC_URL` | Adresse der Seite; dann steht ein Link zu `/admin` in der Discord-Nachricht |
-| `COOKIE_SECURE` | `true`, wenn die Seite nur über HTTPS läuft |
-| `FETCH_MAKERWORLD_INFO` | Titel & Vorschaubild automatisch von MakerWorld laden (`true`/`false`) |
-| `TIMEZONE` | Zeitzone für die Anzeige (Standard `Europe/Berlin`) |
+| Node.js-Version | 18 oder neuer (am besten die neueste) |
+| Anwendungsmodus (Application Mode) | `production` |
+| Anwendungsstamm (Application Root) | der Ordner mit `package.json`, z. B. `/httpdocs` |
+| Dokumentenstamm (Document Root) | der Unterordner `public`, z. B. `/httpdocs/public` |
+| Anwendungsstartdatei (Startup File) | `app.js` |
 
-### 3. Starten mit Docker (empfohlen)
+Wichtig: Der Dokumentenstamm muss auf `public` zeigen, damit niemand die Daten
+oder Einstellungen im Browser abrufen kann.
+
+Dann auf **NPM install** klicken.
+
+> Siehst du den Menüpunkt **Node.js** nicht, muss dein Hoster bzw. Plesk-Admin
+> die Node.js-Erweiterung erst freischalten.
+
+### 5. Einstellungen eintragen
+
+Im selben Node.js-Fenster unter **Benutzerdefinierte Umgebungsvariablen**
+(Custom environment variables):
+
+| Variable | Wert |
+| --- | --- |
+| `ADMIN_PASSWORD` | dein Passwort für `/admin` (**Pflicht**) |
+| `FAMILY_PASSWORD` | Passwort für die Familie (empfohlen, sonst kann jeder einreichen) |
+| `DISCORD_WEBHOOK_URL` | die Webhook-URL aus Schritt 1 |
+| `PUBLIC_URL` | z. B. `https://druck.deine-domain.de` (optional, dann ist in Discord ein Link zum Admin-Bereich) |
+| `COOKIE_SECURE` | `true`, sobald HTTPS aktiv ist |
+
+Weitere, seltener gebrauchte Einstellungen stehen in `.env.example`. Statt in
+Plesk kannst du die Werte auch in eine Datei `.env` im Anwendungsstamm schreiben
+(Vorlage: `.env.example`).
+
+### 6. Starten
+
+**Node.js aktivieren** bzw. **App neu starten** klicken, dann die Domain im
+Browser öffnen. Unter `/admin` anmelden und unten bei „Discord“ auf **Jetzt an
+Discord senden** klicken – dann siehst du sofort, ob der Webhook funktioniert.
+
+### Updates
+
+Neuen Code hochladen (bzw. in Plesk bei Git **Pull** / **Bereitstellen**), dann
+**NPM install** und **App neu starten**. Den Ordner `data/` dabei **nicht
+löschen** – dort liegen alle Aufträge. Ihn ab und zu zu sichern schadet nicht.
+
+## Ohne Plesk
 
 ```bash
-docker compose up -d --build
+npm install
+ADMIN_PASSWORD=… DISCORD_WEBHOOK_URL=… npm start   # läuft auf Port 3000 (oder $PORT)
 ```
-
-Die Seite läuft dann auf `http://<dein-server>:8000`. Die Daten (SQLite-Datenbank)
-liegen im Docker-Volume `daten` und überleben Updates und Neustarts.
-
-Update auf eine neue Version:
-
-```bash
-git pull
-docker compose up -d --build
-```
-
-### Alternativ: ohne Docker
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-set -a; . ./.env; set +a
-gunicorn --workers 1 --threads 4 --bind 0.0.0.0:8000 "app:create_app()"
-```
-
-Die Daten landen dann im Ordner `data/`. Bitte immer **nur einen Worker**
-verwenden – so kann es nie zu doppelten Discord-Nachrichten kommen.
-
-### Von außen erreichbar machen
-
-Damit die Familie auch von unterwegs Aufträge einreichen kann, brauchst du einen
-Weg ins Internet, z. B. einen **Cloudflare Tunnel**, **Tailscale Funnel** oder
-einen Reverse-Proxy (Caddy, Nginx Proxy Manager …) mit HTTPS. Dann
-`COOKIE_SECURE=true` und `PUBLIC_URL=https://…` setzen und ein
-`FAMILY_PASSWORD` vergeben.
 
 ## Hinweise
 
 - **MakerWorld-Infos:** Beim Einreichen versucht die App, Titel und Vorschaubild
   von der MakerWorld-Seite zu laden. Blockiert MakerWorld das (Bot-Schutz),
-  heißt der Auftrag einfach „MakerWorld-Modell 12345“ – du kannst den Titel und
-  ein Vorschaubild jederzeit unter **Bearbeiten** ändern.
+  heißt der Auftrag einfach „MakerWorld-Modell 12345“ – Titel und Vorschaubild
+  kannst du jederzeit unter **Bearbeiten** ändern.
 - **Discord nicht erreichbar?** Dann steht im Admin-Bereich unter „Discord“ der
   Fehler. Beim nächsten Klick wird automatisch neu versucht, oder du drückst
   **Jetzt an Discord senden**.
@@ -108,7 +124,6 @@ einen Reverse-Proxy (Caddy, Nginx Proxy Manager …) mit HTTPS. Dann
 ## Entwicklung
 
 ```bash
-pip install -r requirements-dev.txt
-pytest
-flask --app app run --debug   # mit ADMIN_PASSWORD=… in der Umgebung
+npm install
+npm test
 ```

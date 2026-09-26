@@ -1,0 +1,17 @@
+{
+  "name": "3d-druck-warteschlange",
+  "version": "1.0.0",
+  "description": "Familie reicht 3D-Druckaufträge ein, du genehmigst sie, die nächsten 3 landen in Discord.",
+  "private": true,
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

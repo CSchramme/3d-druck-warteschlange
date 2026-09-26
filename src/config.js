@@ -1,0 +1,70 @@
+'use strict';
+
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+
+// Liest eine .env-Datei (KEY=wert). Variablen, die schon gesetzt sind (z. B. in
+// Plesk unter „Benutzerdefinierte Umgebungsvariablen“), haben Vorrang.
+function loadEnvFile(file) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return;
+  }
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match) continue;
+    let value = match[2];
+    const quoted = value.match(/^(['"])(.*)\1$/);
+    if (quoted) value = quoted[2];
+    if (process.env[match[1]] === undefined) process.env[match[1]] = value;
+  }
+}
+
+function envBool(value, fallback) {
+  if (value === undefined || value === '') return fallback;
+  return ['1', 'true', 'yes', 'ja', 'on'].includes(value.trim().toLowerCase());
+}
+
+function loadSecretKey(dataDir, fromEnv) {
+  if (fromEnv) return fromEnv;
+  // Ohne SECRET_KEY einen zufälligen Schlüssel erzeugen und im Datenordner
+  // merken, damit Logins einen Neustart überleben.
+  const file = path.join(dataDir, 'secret_key');
+  try {
+    return fs.readFileSync(file, 'utf8').trim();
+  } catch {
+    const key = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(file, key, { mode: 0o600 });
+    return key;
+  }
+}
+
+function loadConfig(overrides = {}) {
+  loadEnvFile(path.join(ROOT, '.env'));
+  const env = process.env;
+
+  const config = {
+    dataDir: path.resolve(ROOT, env.DATA_DIR || 'data'),
+    adminPassword: env.ADMIN_PASSWORD || '',
+    familyPassword: env.FAMILY_PASSWORD || '',
+    discordWebhookUrl: (env.DISCORD_WEBHOOK_URL || '').trim(),
+    discordTopN: parseInt(env.DISCORD_TOP_N, 10) || 3,
+    publicUrl: (env.PUBLIC_URL || '').trim().replace(/\/+$/, ''),
+    timezone: env.TIMEZONE || 'Europe/Berlin',
+    fetchMakerworldInfo: envBool(env.FETCH_MAKERWORLD_INFO, true),
+    cookieSecure: envBool(env.COOKIE_SECURE, false),
+    secretKey: env.SECRET_KEY || '',
+    ...overrides,
+  };
+
+  fs.mkdirSync(config.dataDir, { recursive: true });
+  config.secretKey = loadSecretKey(config.dataDir, config.secretKey);
+  return config;
+}
+
+module.exports = { loadConfig };
