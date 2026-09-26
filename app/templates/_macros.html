@@ -1,0 +1,79 @@
+{% macro job_fields(values, admin=False) %}
+  <label class="field">
+    <span>{{ 'Für wen' if admin else 'Dein Name' }} <em>*</em></span>
+    <input name="requester" maxlength="60" required autocomplete="name"
+           value="{{ values.requester or '' }}" placeholder="z. B. Oma Inge">
+  </label>
+
+  <label class="field">
+    <span>MakerWorld-Link</span>
+    <input name="makerworld_url" type="text" inputmode="url" autocapitalize="off" spellcheck="false" maxlength="500"
+           value="{{ values.makerworld_url or '' }}"
+           placeholder="https://makerworld.com/de/models/…">
+    <small>Hast du keinen? Kein Problem – beschreib unten einfach, was du brauchst.</small>
+  </label>
+
+  <label class="field">
+    <span>Was soll gedruckt werden?</span>
+    <input name="title" maxlength="120" value="{{ values.title or '' }}"
+           placeholder="z. B. Handyhalter fürs Auto">
+    <small>Bei einem MakerWorld-Link darf das leer bleiben.</small>
+  </label>
+
+  <div class="row">
+    <label class="field narrow">
+      <span>Anzahl</span>
+      <input name="quantity" type="number" min="1" max="99" value="{{ values.quantity or 1 }}">
+    </label>
+    <label class="field">
+      <span>Farbe / Material</span>
+      <input name="color" maxlength="60" value="{{ values.color or '' }}" placeholder="z. B. Rot, egal">
+    </label>
+  </div>
+
+  <label class="field">
+    <span>Beschreibung &amp; Wünsche</span>
+    <textarea name="notes" rows="4" maxlength="1000"
+              placeholder="Größe, Maße, wofür es ist, bis wann du es brauchst …">{{ values.notes or '' }}</textarea>
+  </label>
+
+  {% if admin %}
+    <label class="field">
+      <span>Vorschaubild-Link</span>
+      <input name="image_url" type="text" inputmode="url" autocapitalize="off" spellcheck="false" maxlength="500" value="{{ values.image_url or '' }}"
+             placeholder="https://… (wird bei MakerWorld automatisch versucht)">
+    </label>
+    <label class="field">
+      <span>Admin-Notiz <small>(nur für dich &amp; Discord)</small></span>
+      <textarea name="admin_note" rows="2" maxlength="1000"
+                placeholder="z. B. PETG, 0,2 mm, Stützen nötig">{{ values.admin_note or '' }}</textarea>
+    </label>
+  {% endif %}
+{% endmacro %}
+
+{% macro link_badge(job) %}
+  {% if job.makerworld_url %}
+    <a class="badge badge-link" href="{{ job.makerworld_url }}" target="_blank" rel="noopener noreferrer">
+      {{ 'MakerWorld' if is_makerworld(job.makerworld_url) else 'Link' }} ↗
+    </a>
+  {% else %}
+    <span class="badge badge-warn" title="Modell muss selbst besorgt oder erstellt werden">kein Link</span>
+  {% endif %}
+{% endmacro %}
+
+{% macro job_meta(job) %}
+  <div class="meta">
+    <span>👤 {{ job.requester }}</span>
+    {% if job.quantity > 1 %}<span>🔢 {{ job.quantity }}×</span>{% endif %}
+    {% if job.color %}<span>🎨 {{ job.color }}</span>{% endif %}
+    <span class="muted">{{ job.created_at | datum }}</span>
+  </div>
+{% endmacro %}
+
+{% macro thumb(job) %}
+  {% if job.image_url %}
+    <img class="thumb" src="{{ job.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+  {% else %}
+    <div class="thumb thumb-empty" aria-hidden="true">🧊</div>
+  {% endif %}
+{% endmacro %}

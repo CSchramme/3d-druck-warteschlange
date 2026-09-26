@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block content %}
+<div class="columns">
+  <section class="card" id="einreichen">
+    <h1>Druckauftrag einreichen</h1>
+    <p class="lead">Füg einen <strong>MakerWorld-Link</strong> ein oder beschreib, was du gedruckt haben möchtest.
+      Jeder Auftrag wird erst geprüft und landet dann in der Warteschlange.</p>
+    <form method="post" action="{{ url_for('public.submit') }}" class="form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="hp" aria-hidden="true">
+        <label>Website <input name="website" tabindex="-1" autocomplete="off"></label>
+      </div>
+      {{ m.job_fields(values) }}
+      <button class="btn btn-primary btn-block" type="submit">Auftrag abschicken</button>
+    </form>
+  </section>
+
+  <div class="stack">
+    <section class="card" id="warteschlange">
+      <h2>Warteschlange <span class="count">{{ queue|length }}</span></h2>
+      {% if queue %}
+        <ol class="joblist">
+          {% for job in queue %}
+            <li class="job {{ 'job-next' if loop.index <= top_n }}">
+              <span class="pos">{{ loop.index }}</span>
+              {{ m.thumb(job) }}
+              <div class="job-body">
+                <div class="job-title">{{ job.title }} {{ m.link_badge(job) }}</div>
+                {{ m.job_meta(job) }}
+              </div>
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p class="empty">Gerade ist nichts in der Warteschlange.</p>
+      {% endif %}
+    </section>
+
+    {% if pending %}
+      <section class="card">
+        <h2>Wartet auf Genehmigung <span class="count">{{ pending|length }}</span></h2>
+        <ul class="joblist">
+          {% for job in pending %}
+            <li class="job">
+              {{ m.thumb(job) }}
+              <div class="job-body">
+                <div class="job-title">{{ job.title }} {{ m.link_badge(job) }}</div>
+                {{ m.job_meta(job) }}
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    {% if done %}
+      <section class="card">
+        <h2>Zuletzt gedruckt</h2>
+        <ul class="simple-list">
+          {% for job in done %}
+            <li>✅ {{ job.title }} <span class="muted">für {{ job.requester }} · {{ job.finished_at | datum }}</span></li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

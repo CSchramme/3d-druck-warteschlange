@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Auftrag bearbeiten – 3D-Druck-Warteschlange{% endblock %}
+{% block content %}
+<section class="card narrow-card wide">
+  <p><a href="{{ url_for('admin.dashboard') }}#auftrag-{{ job.id }}">← Zurück</a></p>
+  <h1>Auftrag bearbeiten</h1>
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {{ m.job_fields(values, admin=True) }}
+    <button class="btn btn-primary" type="submit">Speichern</button>
+  </form>
+</section>
+{% endblock %}
