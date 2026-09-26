@@ -30,6 +30,25 @@ Datenbank gebraucht – alles liegt in kleinen Dateien im Ordner `data/`.
    Nur dann kommt eine neue Nachricht. Rutscht z. B. ein neuer Auftrag auf
    Platz 5, bleibt Discord ruhig.
 
+## Druck-Archiv
+
+Unter **Archiv** (oben im Menü, sobald du als Admin angemeldet bist) findest du
+alles, was du je gedruckt hast:
+
+- **Automatisch:** Jeder Auftrag, den du mit **✓ Gedruckt** abhakst, landet dort.
+- **Suchen:** Das Suchfeld filtert schon beim Tippen – über Titel, Person, Farbe,
+  Wünsche, deine Notizen, Link und Datum (z. B. „2025“ oder „Dezember“). Umlaute
+  sind egal: „krauter“ findet auch „Kräuterschilder“. Mehrere Wörter grenzen
+  weiter ein („oma drache“).
+- **Filtern & sortieren:** nach Person, neueste/älteste zuerst, nach Titel.
+- **Nochmal drucken:** legt eine Kopie mit einem Klick hinten in die Warteschlange –
+  der Eintrag im Archiv bleibt.
+- **Frühere Drucke nachtragen:** einzeln mit Datum, oder viele MakerWorld-Links auf
+  einmal (einer pro Zeile). Titel, Datum, Bild und Notizen lassen sich jederzeit
+  unter **Bearbeiten** ändern.
+- **Export:** „Als Tabelle (CSV)“ lädt die aktuelle Auswahl herunter – öffnet sich
+  direkt in Excel oder LibreOffice.
+
 ## Einrichten in Plesk
 
 ### 1. Discord-Webhook anlegen

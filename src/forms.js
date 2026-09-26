@@ -67,4 +67,33 @@ async function completeFromMakerworld(values, enabled = true) {
   return values;
 }
 
-module.exports = { parseJobForm, completeFromMakerworld };
+/**
+ * Datumsfeld ('JJJJ-MM-TT') -> ISO-Zeitpunkt. Mittags UTC, damit das Datum in
+ * jeder europäischen Zeitzone gleich angezeigt wird. Ungültig -> null.
+ */
+function parseDate(value) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const date = new Date(`${text}T12:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== text) return null;
+  if (date.getUTCFullYear() < 2000 || date.getTime() > Date.now() + 2 * 24 * 3600 * 1000) return null;
+  return date.toISOString();
+}
+
+/** Liste von Links (einer pro Zeile) -> { urls, skipped }. Doppelte fallen raus. */
+function parseLinkList(value, max = 50) {
+  const urls = [];
+  const skipped = [];
+  const lines = (typeof value === 'string' ? value : '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    try {
+      const url = makerworld.normalizeUrl(line);
+      if (!urls.includes(url)) urls.push(url);
+    } catch {
+      skipped.push(line.slice(0, 80));
+    }
+  }
+  return { urls: urls.slice(0, max), skipped, tooMany: urls.length > max };
+}
+
+module.exports = { parseJobForm, completeFromMakerworld, parseDate, parseLinkList };

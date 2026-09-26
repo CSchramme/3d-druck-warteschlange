@@ -28,6 +28,7 @@ function layout(ctx, { title, body }) {
         <a href="/#einreichen">Einreichen</a>
         <a href="/#warteschlange">Warteschlange</a>
         <a href="/admin">Admin</a>
+        ${isAdmin ? html`<a href="/admin/archiv">Archiv</a>` : ''}
         ${isAdmin ? html`
           <form method="post" action="/admin/logout" class="inline">
             <input type="hidden" name="csrf_token" value="${csrf}">
@@ -58,7 +59,7 @@ function layout(ctx, { title, body }) {
 </html>`;
 }
 
-function jobFields(values, { admin = false } = {}) {
+function jobFields(values, { admin = false, printedDate = false } = {}) {
   return html`
   <label class="field">
     <span>${admin ? 'Für wen' : 'Dein Name'} <em>*</em></span>
@@ -90,6 +91,12 @@ function jobFields(values, { admin = false } = {}) {
     </label>
   </div>
 
+  ${printedDate ? html`
+  <label class="field">
+    <span>Gedruckt am <em>*</em></span>
+    <input name="printed_at" type="date" required value="${values.printedAt}">
+  </label>` : ''}
+
   <label class="field">
     <span>Beschreibung &amp; Wünsche</span>
     <textarea name="notes" rows="4" maxlength="1000"
@@ -109,11 +116,12 @@ function jobFields(values, { admin = false } = {}) {
   </label>` : ''}`;
 }
 
-function linkBadge(job) {
+function linkBadge(job, { warnMissing = true } = {}) {
   if (job.makerworldUrl) {
     return html`<a class="badge badge-link" href="${job.makerworldUrl}" target="_blank" rel="noopener noreferrer">${
       isMakerworld(job.makerworldUrl) ? 'MakerWorld' : 'Link'} ↗</a>`;
   }
+  if (!warnMissing) return '';
   return html`<span class="badge badge-warn" title="Modell muss selbst besorgt oder erstellt werden">kein Link</span>`;
 }
 
@@ -218,10 +226,11 @@ function adminLogin(ctx, { configured }) {
   return layout(ctx, { title: 'Admin-Login', body });
 }
 
-function action(ctx, job, name, label, { cls = 'btn', confirm = null, title = null } = {}) {
+function action(ctx, job, name, label, { cls = 'btn', confirm = null, title = null, back = null } = {}) {
   return html`<form method="post" action="/admin/auftrag/${job.id}/${name}" class="inline"${
     confirm ? html` data-confirm="${confirm}"` : ''}>
     <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+    ${back ? html`<input type="hidden" name="back" value="${back}">` : ''}
     <button type="submit" class="${cls}"${title ? html` title="${title}" aria-label="${title}"` : ''}>${label}</button>
   </form>`;
 }
@@ -302,6 +311,7 @@ function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValue
 
 <section class="card" id="erledigt">
   <h2>Erledigt &amp; abgelehnt</h2>
+  <p class="small"><a href="/admin/archiv">📚 Alle gedruckten Aufträge im Archiv durchsuchen →</a></p>
   ${finished.length ? html`<ul class="joblist compact">
     ${finished.map((job) => html`
       <li class="job job-admin" id="auftrag-${job.id}">
@@ -342,18 +352,119 @@ function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValue
   return layout(ctx, { title: 'Admin', body });
 }
 
-function adminEdit(ctx, { job, values }) {
+function adminEdit(ctx, { job, values, back }) {
   const body = html`
 <section class="card narrow-card wide">
-  <p><a href="/admin#auftrag-${job.id}">← Zurück</a></p>
-  <h1>Auftrag bearbeiten</h1>
+  <p><a href="${back}#auftrag-${job.id}">← Zurück</a></p>
+  <h1>${job.status === 'done' ? 'Druck bearbeiten' : 'Auftrag bearbeiten'}</h1>
   <form method="post" action="/admin/auftrag/${job.id}/bearbeiten" class="form">
     <input type="hidden" name="csrf_token" value="${ctx.csrf}">
-    ${jobFields(values, { admin: true })}
+    <input type="hidden" name="back" value="${back}">
+    ${jobFields(values, { admin: true, printedDate: job.status === 'done' })}
     <button class="btn btn-primary" type="submit">Speichern</button>
   </form>
 </section>`;
   return layout(ctx, { title: 'Auftrag bearbeiten', body });
+}
+
+function adminArchive(ctx, {
+  q, person, sort, entries, stats, total, people, back, newValues, importValues, openNew, openImport,
+}) {
+  const sortOptions = [['neu', 'Neueste zuerst'], ['alt', 'Älteste zuerst'], ['titel', 'Titel A–Z'], ['person', 'Nach Person']];
+  const editLink = (job) => `/admin/auftrag/${job.id}/bearbeiten?back=${encodeURIComponent(back)}`;
+  const body = html`
+<div class="admin-head">
+  <h1>📚 Druck-Archiv</h1>
+  ${total ? html`<a class="btn btn-small" href="/admin/archiv.csv${back.includes('?') ? back.slice(back.indexOf('?')) : ''}"
+     download>⬇️ Als Tabelle (CSV)</a>` : ''}
+</div>
+
+<section class="card">
+  <form method="get" action="/admin/archiv" class="archive-filters" role="search">
+    <input id="archiv-suche" name="q" type="search" value="${q}" autocomplete="off"
+           placeholder="Suchen, z. B. Drache, Mama, 2025" aria-label="Archiv durchsuchen">
+    <select name="person" aria-label="Person">
+      <option value="">Alle Personen</option>
+      ${people.map((p) => html`<option value="${p.name}"${p.name.toLowerCase() === person.toLowerCase() ? html` selected` : ''}>${p.name} (${p.count})</option>`)}
+    </select>
+    <select name="sort" aria-label="Sortierung">
+      ${sortOptions.map(([value, label]) => html`<option value="${value}"${value === sort ? html` selected` : ''}>${label}</option>`)}
+    </select>
+    <noscript><button class="btn" type="submit">Suchen</button></noscript>
+  </form>
+
+  <p class="archive-stats">
+    <span><strong id="stat-drucke">${stats.prints}</strong> Drucke</span>
+    <span><strong id="stat-teile">${stats.pieces}</strong> Teile</span>
+    <span><strong id="stat-personen">${stats.people}</strong> Personen</span>
+  </p>
+
+  ${total ? html`
+  <ul class="joblist" id="archiv-liste">
+    ${entries.map(({ job, text, visible }) => html`
+      <li class="job job-admin" id="auftrag-${job.id}" data-search="${text}" data-qty="${job.quantity || 1}"
+          data-person="${job.requester}"${visible ? '' : html` hidden`}>
+        ${thumb(job)}
+        <div class="job-body">
+          <div class="job-title">${job.title} ${linkBadge(job, { warnMissing: false })}</div>
+          <div class="meta">
+            <span>📅 ${ctx.day(job.finishedAt)}</span>
+            <span>👤 ${job.requester}</span>
+            ${job.quantity > 1 ? html`<span>🔢 ${job.quantity}×</span>` : ''}
+            ${job.color ? html`<span>🎨 ${job.color}</span>` : ''}
+          </div>
+          ${job.notes ? html`<p class="notes">📝 ${job.notes}</p>` : ''}
+          ${job.adminNote ? html`<p class="notes admin-note">🛠️ ${job.adminNote}</p>` : ''}
+          <div class="actions">
+            ${action(ctx, job, 'nochmal', '🔁 Nochmal drucken', { cls: 'btn btn-primary btn-small', back })}
+            <a class="btn btn-small" href="${editLink(job)}">Bearbeiten</a>
+            ${action(ctx, job, 'delete', 'Löschen', {
+              cls: 'btn btn-small btn-danger-soft', confirm: `„${job.title}“ aus dem Archiv löschen?`, back,
+            })}
+          </div>
+        </div>
+      </li>`)}
+  </ul>
+  <p class="empty" id="archiv-leer"${stats.prints ? html` hidden` : ''}>Nichts gefunden – versuch es mit einem anderen Suchwort.</p>`
+  : html`<p class="empty">Noch keine Drucke im Archiv. Sobald du in der Warteschlange auf <strong>✓ Gedruckt</strong>
+      klickst, landet der Auftrag hier. Frühere Drucke kannst du unten nachtragen.</p>`}
+</section>
+
+<section class="card">
+  <details class="add-own"${openNew ? html` open` : ''}>
+    <summary>➕ Früheren Druck nachtragen</summary>
+    <form method="post" action="/admin/archiv/nachtragen" class="form">
+      <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+      ${jobFields(newValues, { admin: true, printedDate: true })}
+      <button class="btn btn-primary" type="submit">Ins Archiv aufnehmen</button>
+    </form>
+  </details>
+
+  <details class="add-own"${openImport ? html` open` : ''}>
+    <summary>📋 Mehrere MakerWorld-Links auf einmal nachtragen</summary>
+    <form method="post" action="/admin/archiv/import" class="form">
+      <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+      <label class="field">
+        <span>Links <em>*</em> <small>(einer pro Zeile, höchstens 50)</small></span>
+        <textarea name="links" rows="6" required spellcheck="false"
+                  placeholder="https://makerworld.com/de/models/…&#10;https://makerworld.com/de/models/…">${importValues.links}</textarea>
+      </label>
+      <div class="row row-even">
+        <label class="field">
+          <span>Für wen <em>*</em></span>
+          <input name="requester" maxlength="60" required value="${importValues.requester}">
+        </label>
+        <label class="field">
+          <span>Gedruckt am <em>*</em></span>
+          <input name="printed_at" type="date" required value="${importValues.printedAt}">
+        </label>
+      </div>
+      <button class="btn btn-primary" type="submit">Alle ins Archiv aufnehmen</button>
+    </form>
+  </details>
+</section>
+<script src="/archiv.js" defer></script>`;
+  return layout(ctx, { title: 'Druck-Archiv', body });
 }
 
 function errorPage(ctx, { status, message }) {
@@ -366,4 +477,4 @@ function errorPage(ctx, { status, message }) {
   return layout(ctx, { title: 'Fehler', body });
 }
 
-module.exports = { index, zugang, adminLogin, adminDashboard, adminEdit, errorPage };
+module.exports = { index, zugang, adminLogin, adminDashboard, adminEdit, adminArchive, errorPage };

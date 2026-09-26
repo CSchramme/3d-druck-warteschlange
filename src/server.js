@@ -11,6 +11,26 @@ const { createStore } = require('./store');
 const { sessionMiddleware, csrfToken, csrfValid, passwordMatches } = require('./session');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const str = (value) => (typeof value === 'string' ? value.trim() : '');
+
+/** Rücksprung-Adresse aus einem Formular – nur interne Admin-Seiten erlaubt. */
+function safeBack(value, fallback) {
+  return typeof value === 'string' && /^\/admin(\/archiv)?(\?[^\s#]*)?$/.test(value) ? value : fallback;
+}
+
+/** Führt fn für alle Elemente aus, höchstens limit gleichzeitig. */
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 // aktion -> was passiert, welche Meldung, bei welchem Status erlaubt
 const ACTIONS = {
@@ -40,6 +60,16 @@ function createApp(config, deps = {}) {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
   });
   const date = (iso) => (iso ? dateFormat.format(new Date(iso)) : '');
+  const dayFormat = new Intl.DateTimeFormat('de-DE', {
+    timeZone: config.timezone, day: '2-digit', month: '2-digit', year: 'numeric',
+  });
+  const day = (iso) => (iso ? dayFormat.format(new Date(iso)) : '');
+  const monthFormat = new Intl.DateTimeFormat('de-DE', { timeZone: config.timezone, month: 'long', year: 'numeric' });
+  const isoDayFormat = new Intl.DateTimeFormat('en-CA', {
+    timeZone: config.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  /** Datum für <input type="date">: 'JJJJ-MM-TT' in deiner Zeitzone. */
+  const isoDay = (iso) => isoDayFormat.format(iso ? new Date(iso) : new Date());
 
   app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
   app.use(sessionMiddleware({ secret: config.secretKey, secure: config.cookieSecure }));
@@ -53,7 +83,7 @@ function createApp(config, deps = {}) {
     res.page = (view, data = {}, status = 200) => {
       const flashes = req.session.flash || [];
       delete req.session.flash;
-      const ctx = { csrf: csrfToken(req), isAdmin: Boolean(req.session.admin), flashes, date };
+      const ctx = { csrf: csrfToken(req), isAdmin: Boolean(req.session.admin), flashes, date, day };
       res.status(status).type('html').send(String(views[view](ctx, data)));
     };
     next();
@@ -198,17 +228,25 @@ function createApp(config, deps = {}) {
   app.get('/admin/auftrag/:id/bearbeiten', requireAdmin, (req, res, next) => {
     const job = jobs.get(store.readData(), Number(req.params.id));
     if (!job) return next();
-    res.page('adminEdit', { job, values: job });
+    const back = safeBack(req.query.back, '/admin');
+    res.page('adminEdit', { job, values: { ...job, printedAt: isoDay(job.finishedAt) }, back });
   });
 
   app.post('/admin/auftrag/:id/bearbeiten', requireAdmin, async (req, res, next) => {
     const id = Number(req.params.id);
     const job = jobs.get(store.readData(), id);
     if (!job) return next();
+    const back = safeBack(req.body.back, '/admin');
     const { values, errors } = forms.parseJobForm(req.body, { admin: true });
+    if (job.status === 'done') {
+      // Druckdatum nur übernehmen, wenn es wirklich geändert wurde (sonst bleibt die Uhrzeit erhalten).
+      const printedAt = forms.parseDate(req.body.printed_at);
+      if (!printedAt) errors.push('Bitte gib ein gültiges Druckdatum an.');
+      else if (str(req.body.printed_at) !== isoDay(job.finishedAt)) values.finishedAt = printedAt;
+    }
     if (errors.length) {
       errors.forEach((error) => req.flash('error', error));
-      return res.page('adminEdit', { job, values }, 400);
+      return res.page('adminEdit', { job, values: { ...values, printedAt: str(req.body.printed_at) }, back }, 400);
     }
     const linkChanged = values.makerworldUrl !== job.makerworldUrl;
     if (linkChanged && values.imageUrl === job.imageUrl) values.imageUrl = null; // Bild gehörte zum alten Link
@@ -223,7 +261,19 @@ function createApp(config, deps = {}) {
     if (!updated) return next();
     req.flash('success', 'Änderungen gespeichert.');
     await syncDiscord(req);
-    res.redirect(303, `/admin#auftrag-${id}`);
+    res.redirect(303, `${back}#auftrag-${id}`);
+  });
+
+  app.post('/admin/auftrag/:id/nochmal', requireAdmin, async (req, res, next) => {
+    const id = Number(req.params.id);
+    const copy = await store.updateData((data) => {
+      const job = jobs.get(data, id);
+      return job && job.status === 'done' ? jobs.duplicate(data, id) : null;
+    });
+    if (!copy) return next();
+    req.flash('success', `„${copy.title}“ steht als neuer Auftrag auf Platz ${copy.position} der Warteschlange.`);
+    await syncDiscord(req);
+    res.redirect(303, `${safeBack(req.body.back, '/admin/archiv')}#auftrag-${id}`);
   });
 
   app.post('/admin/auftrag/:id/:action', requireAdmin, async (req, res, next) => {
@@ -253,7 +303,109 @@ function createApp(config, deps = {}) {
     const anchor = {
       approve: '', reject: '', unapprove: '', delete: '#warteschlange', done: '#warteschlange',
     }[req.params.action] ?? `#auftrag-${id}`;
+    if (req.body.back) return res.redirect(303, safeBack(req.body.back, '/admin'));
     res.redirect(303, `/admin${anchor}`);
+  });
+
+  // --- Archiv -------------------------------------------------------------------------
+
+  function archiveFilters(query) {
+    const sort = str(query.sort);
+    return {
+      q: str(query.q).slice(0, 200),
+      person: str(query.person).slice(0, 60),
+      sort: Object.prototype.hasOwnProperty.call(jobs.ARCHIVE_SORTS, sort) ? sort : 'neu',
+    };
+  }
+
+  function archiveEntries(data, { q, person, sort }) {
+    return jobs.archive(data, { person, sort }).map((job) => {
+      const when = job.finishedAt ? `${day(job.finishedAt)} ${monthFormat.format(new Date(job.finishedAt))}` : '';
+      const text = jobs.searchText(job, when);
+      return { job, text, visible: jobs.matches(text, q) };
+    });
+  }
+
+  function renderArchive(req, res, extra = {}, status = 200) {
+    const data = store.readData();
+    const filters = archiveFilters(req.query);
+    const entries = archiveEntries(data, filters).slice(0, 2000);
+    const visible = entries.filter((entry) => entry.visible).map((entry) => entry.job);
+    const query = new URLSearchParams(
+      Object.entries(filters).filter(([key, value]) => value && !(key === 'sort' && value === 'neu')),
+    ).toString();
+    res.page('adminArchive', {
+      ...filters,
+      entries,
+      stats: {
+        prints: visible.length,
+        pieces: visible.reduce((sum, job) => sum + (job.quantity || 1), 0),
+        people: new Set(visible.map((job) => job.requester)).size,
+      },
+      total: jobs.archive(data).length,
+      people: jobs.archivePeople(data),
+      back: query ? `/admin/archiv?${query}` : '/admin/archiv',
+      newValues: { requester: 'Ich', quantity: 1, printedAt: isoDay(), ...extra.newValues },
+      importValues: { requester: 'Ich', printedAt: isoDay(), ...extra.importValues },
+      openNew: Boolean(extra.newValues),
+      openImport: Boolean(extra.importValues),
+    }, status);
+  }
+
+  app.get('/admin/archiv', requireAdmin, (req, res) => renderArchive(req, res));
+
+  app.get('/admin/archiv.csv', requireAdmin, (req, res) => {
+    const rows = archiveEntries(store.readData(), archiveFilters(req.query))
+      .filter((entry) => entry.visible)
+      .map(({ job }) => [day(job.finishedAt), job.title, job.requester, job.quantity, job.color,
+        job.makerworldUrl, job.notes, job.adminNote]);
+    const cell = (value) => {
+      let text = value === null || value === undefined ? '' : String(value);
+      if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`; // keine Formeln in Excel einschleusen
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+    const header = ['Gedruckt am', 'Titel', 'Für', 'Anzahl', 'Farbe/Material', 'Link', 'Wünsche', 'Notiz'];
+    const csv = [header, ...rows].map((row) => row.map(cell).join(';')).join('\r\n');
+    res.set('Content-Disposition', 'attachment; filename="druck-archiv.csv"');
+    res.type('text/csv; charset=utf-8').send(`\ufeff${csv}\r\n`);
+  });
+
+  app.post('/admin/archiv/nachtragen', requireAdmin, async (req, res) => {
+    const { values, errors } = forms.parseJobForm(req.body, { admin: true });
+    const printedAt = forms.parseDate(req.body.printed_at);
+    if (!printedAt) errors.push('Bitte gib ein gültiges Druckdatum an (nicht in der Zukunft).');
+    if (errors.length) {
+      errors.forEach((error) => req.flash('error', error));
+      return renderArchive(req, res, { newValues: { ...values, printedAt: str(req.body.printed_at) } }, 400);
+    }
+    await forms.completeFromMakerworld(values, config.fetchMakerworldInfo);
+    const job = await store.updateData((data) => jobs.addPrinted(data, values, printedAt));
+    req.flash('success', `„${job.title}“ ist jetzt im Archiv.`);
+    res.redirect(303, `/admin/archiv#auftrag-${job.id}`);
+  });
+
+  app.post('/admin/archiv/import', requireAdmin, async (req, res) => {
+    const { urls, skipped, tooMany } = forms.parseLinkList(req.body.links);
+    const requester = str(req.body.requester).slice(0, 60);
+    const printedAt = forms.parseDate(req.body.printed_at);
+    const errors = [];
+    if (!urls.length) errors.push('Bitte füge mindestens einen gültigen Link ein (einen pro Zeile).');
+    if (!requester) errors.push('Bitte gib an, für wen die Drucke waren.');
+    if (!printedAt) errors.push('Bitte gib ein gültiges Druckdatum an (nicht in der Zukunft).');
+    if (errors.length) {
+      errors.forEach((error) => req.flash('error', error));
+      const importValues = { links: str(req.body.links), requester, printedAt: str(req.body.printed_at) };
+      return renderArchive(req, res, { importValues }, 400);
+    }
+    const entries = await mapLimit(urls, 6, (url) => forms.completeFromMakerworld(
+      { makerworldUrl: url, requester, quantity: 1, title: null, imageUrl: null }, config.fetchMakerworldInfo,
+    ));
+    await store.updateData((data) => entries.forEach((values) => jobs.addPrinted(data, values, printedAt)));
+    req.flash('success', `${entries.length} ${entries.length === 1 ? 'Druck' : 'Drucke'} ins Archiv übernommen. `
+      + 'Titel und Bilder kannst du bei Bedarf unter „Bearbeiten“ anpassen.');
+    if (skipped.length) req.flash('error', `Übersprungen (kein gültiger Link): ${skipped.join(', ')}`);
+    if (tooMany) req.flash('error', 'Es wurden nur die ersten 50 Links übernommen – den Rest bitte in einem zweiten Schritt.');
+    res.redirect(303, '/admin/archiv');
   });
 
   app.post('/admin/discord/senden', requireAdmin, async (req, res) => {
