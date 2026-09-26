@@ -77,8 +77,8 @@ test('Filter nach Person und Sortierung', async () => {
   assert.deepEqual(await titles('sort=quatsch'), ['C-Teil', 'A-Teil', 'B-Teil']);
 });
 
-test('Früheren Druck nachtragen', async () => {
-  const res = await admin.post('/admin/archiv/nachtragen', {
+test('Druck selbst eintragen', async () => {
+  const res = await admin.post('/admin/archiv/eintragen', {
     requester: 'Ich', title: 'Benchy', quantity: '3', color: 'Orange', printed_at: '2024-05-17',
   });
   assert.equal(res.status, 303);
@@ -92,9 +92,9 @@ test('Früheren Druck nachtragen', async () => {
   assert.deepEqual(env.sent, []); // das Archiv berührt die Warteschlange nicht
 });
 
-test('Nachtragen mit falschem Datum wird abgelehnt', async () => {
+test('Eintragen mit falschem Datum wird abgelehnt', async () => {
   for (const printed_at of ['', '2024-13-01', '2099-01-01']) {
-    const res = await admin.post('/admin/archiv/nachtragen', { requester: 'Ich', title: 'X', printed_at });
+    const res = await admin.post('/admin/archiv/eintragen', { requester: 'Ich', title: 'X', printed_at });
     assert.equal(res.status, 400, printed_at);
     assert.match(res.text, /gültiges Druckdatum/);
   }
@@ -195,4 +195,35 @@ test('CSV-Export mit Filter und ohne Excel-Formeln', async () => {
 
   const filtered = await admin.get('/admin/archiv.csv?person=Papa');
   assert.equal(filtered.text.trim().split('\r\n').length, 2);
+});
+
+test('HTML-Export: eine Datei mit allen Drucken und eingebauter Suche', async () => {
+  await printAll({ title: '<img src=x onerror=alert(1)>', requester: 'Mama' }, { title: 'Vase', requester: 'Papa' });
+  await admin.post('/admin/archiv/eintragen', { requester: 'Ich', title: 'Benchy', printed_at: '2024-05-17' });
+  await admin.submit({ title: 'Noch offen' });
+
+  assert.equal((await env.client().get('/admin/archiv.html')).status, 303);
+
+  // direkt per fetch, um an die Header zu kommen
+  const res = await fetch(`${admin.base}/admin/archiv.html?q=vase`, { headers: { cookie: admin.cookie } });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-disposition'), /^attachment; filename="druck-archiv-\d{4}-\d{2}-\d{2}\.html"$/);
+  const file = await res.text();
+
+  // alles drin, egal welcher Filter gerade aktiv ist – aber nur Gedrucktes
+  assert.equal((file.match(/<li class="job" /g) || []).length, 3);
+  assert.doesNotMatch(file, /Noch offen/);
+  assert.match(file, /17\.05\.2024/);
+  assert.match(file, /<strong id="stat-drucke">3<\/strong>/);
+  assert.match(file, /<option value="Mama">Mama \(1\)<\/option>/);
+
+  // eigenständig: Aussehen und Suche stecken in der Datei, nichts wird nachgeladen
+  assert.match(file, /<input id="suche" type="search"/);
+  assert.match(file, /--accent:/);
+  assert.match(file, /function normalize\(text\)/);
+  assert.doesNotMatch(file, /<script src=|<link rel="stylesheet"/);
+
+  // Eingaben sind maskiert
+  assert.doesNotMatch(file, /<img src=x onerror/);
+  assert.match(file, /&lt;img src=x onerror=alert\(1\)&gt;/);
 });

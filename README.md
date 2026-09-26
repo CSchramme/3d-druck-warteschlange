@@ -43,11 +43,16 @@ alles, was du je gedruckt hast:
 - **Filtern & sortieren:** nach Person, neueste/älteste zuerst, nach Titel.
 - **Nochmal drucken:** legt eine Kopie mit einem Klick hinten in die Warteschlange –
   der Eintrag im Archiv bleibt.
-- **Frühere Drucke nachtragen:** einzeln mit Datum, oder viele MakerWorld-Links auf
-  einmal (einer pro Zeile). Titel, Datum, Bild und Notizen lassen sich jederzeit
-  unter **Bearbeiten** ändern.
-- **Export:** „Als Tabelle (CSV)“ lädt die aktuelle Auswahl herunter – öffnet sich
-  direkt in Excel oder LibreOffice.
+- **➕ Druck eintragen:** für alles, was nicht über die Warteschlange lief – z. B.
+  was du für dich selbst druckst, oder ältere Drucke von früher. Einzeln mit Datum,
+  oder viele MakerWorld-Links auf einmal (einer pro Zeile). Titel, Datum, Bild und
+  Notizen lassen sich jederzeit unter **Bearbeiten** ändern.
+- **⬇️ HTML mit Suche:** lädt eine einzige HTML-Datei mit **allen** Drucken
+  herunter. Die Datei bringt Suche, Personenfilter und Sortierung selbst mit und
+  funktioniert auch ohne Internet und ohne Server – einfach doppelklicken, im
+  Browser öffnen, weitergeben oder ausdrucken.
+- **⬇️ CSV:** lädt die aktuelle Auswahl als Tabelle herunter – öffnet sich direkt in
+  Excel oder LibreOffice.
 
 ## Einrichten in Plesk
 

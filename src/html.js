@@ -30,4 +30,7 @@ function html(strings, ...values) {
   return new SafeHtml(out);
 }
 
-module.exports = { html, escape };
+/** Bereits sicheres HTML/CSS/JS unverändert einsetzen (nur für eigene Dateien!). */
+const raw = (value) => new SafeHtml(String(value));
+
+module.exports = { html, escape, raw };

@@ -1,7 +1,14 @@
 'use strict';
 
-const { html } = require('./html');
+const fs = require('fs');
+const path = require('path');
+
+const { html, raw } = require('./html');
 const { isMakerworld } = require('./makerworld');
+
+// Für den HTML-Export: Aussehen und Suche werden direkt in die Datei gepackt.
+const EXPORT_CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
+const EXPORT_JS = fs.readFileSync(path.join(__dirname, 'export', 'archiv-export.js'), 'utf8');
 
 // --- Bausteine ---------------------------------------------------------------
 
@@ -301,6 +308,7 @@ function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValue
 
   <details class="add-own"${openNew ? html` open` : ''}>
     <summary>➕ Eigenen Auftrag direkt in die Warteschlange</summary>
+    <p class="muted small">Schon gedruckt? Dann <a href="/admin/archiv#eintragen">trag ihn direkt im Archiv ein</a>.</p>
     <form method="post" action="/admin/auftrag/neu" class="form">
       <input type="hidden" name="csrf_token" value="${ctx.csrf}">
       ${jobFields(newValues, { admin: true })}
@@ -367,6 +375,17 @@ function adminEdit(ctx, { job, values, back }) {
   return layout(ctx, { title: 'Auftrag bearbeiten', body });
 }
 
+/** „5 Drucke · 14 Teile · 4 Personen“ – die Skripte passen Zahl und Einzahl/Mehrzahl live an. */
+function statsLine(stats) {
+  const stat = (id, count, one, many) => html`<span><strong id="stat-${id}">${count}</strong> <span
+    data-one="${one}" data-many="${many}">${count === 1 ? one : many}</span></span>`;
+  return html`<p class="archive-stats">
+    ${stat('drucke', stats.prints, 'Druck', 'Drucke')}
+    ${stat('teile', stats.pieces, 'Teil', 'Teile')}
+    ${stat('personen', stats.people, 'Person', 'Personen')}
+  </p>`;
+}
+
 function adminArchive(ctx, {
   q, person, sort, entries, stats, total, people, back, newValues, importValues, openNew, openImport,
 }) {
@@ -375,9 +394,51 @@ function adminArchive(ctx, {
   const body = html`
 <div class="admin-head">
   <h1>📚 Druck-Archiv</h1>
-  ${total ? html`<a class="btn btn-small" href="/admin/archiv.csv${back.includes('?') ? back.slice(back.indexOf('?')) : ''}"
-     download>⬇️ Als Tabelle (CSV)</a>` : ''}
+  <div class="head-actions">
+    <a class="btn btn-primary btn-small" href="#eintragen" data-open="eintragen">➕ Druck eintragen</a>
+    ${total ? html`
+    <a class="btn btn-small" href="/admin/archiv.html" download
+       title="Eine Datei mit allen Drucken – inklusive Suche, auch offline">⬇️ HTML mit Suche</a>
+    <a class="btn btn-small" href="/admin/archiv.csv${back.includes('?') ? back.slice(back.indexOf('?')) : ''}"
+       download title="Aktuelle Auswahl als Tabelle für Excel">⬇️ CSV</a>` : ''}
+  </div>
 </div>
+
+<section class="card" id="eintragen">
+  <details class="add-own"${openNew ? html` open` : ''}>
+    <summary>➕ Druck eintragen</summary>
+    <p class="muted small">Für alles, was nicht über die Warteschlange lief – z. B. was du für dich selbst
+      gedruckt hast, oder ältere Drucke von früher.</p>
+    <form method="post" action="/admin/archiv/eintragen" class="form">
+      <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+      ${jobFields(newValues, { admin: true, printedDate: true })}
+      <button class="btn btn-primary" type="submit">Ins Archiv aufnehmen</button>
+    </form>
+  </details>
+
+  <details class="add-own"${openImport ? html` open` : ''}>
+    <summary>📋 Mehrere MakerWorld-Links auf einmal eintragen</summary>
+    <form method="post" action="/admin/archiv/import" class="form">
+      <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+      <label class="field">
+        <span>Links <em>*</em> <small>(einer pro Zeile, höchstens 50)</small></span>
+        <textarea name="links" rows="6" required spellcheck="false"
+                  placeholder="https://makerworld.com/de/models/…&#10;https://makerworld.com/de/models/…">${importValues.links}</textarea>
+      </label>
+      <div class="row row-even">
+        <label class="field">
+          <span>Für wen <em>*</em></span>
+          <input name="requester" maxlength="60" required value="${importValues.requester}">
+        </label>
+        <label class="field">
+          <span>Gedruckt am <em>*</em></span>
+          <input name="printed_at" type="date" required value="${importValues.printedAt}">
+        </label>
+      </div>
+      <button class="btn btn-primary" type="submit">Alle ins Archiv aufnehmen</button>
+    </form>
+  </details>
+</section>
 
 <section class="card">
   <form method="get" action="/admin/archiv" class="archive-filters" role="search">
@@ -393,11 +454,7 @@ function adminArchive(ctx, {
     <noscript><button class="btn" type="submit">Suchen</button></noscript>
   </form>
 
-  <p class="archive-stats">
-    <span><strong id="stat-drucke">${stats.prints}</strong> Drucke</span>
-    <span><strong id="stat-teile">${stats.pieces}</strong> Teile</span>
-    <span><strong id="stat-personen">${stats.people}</strong> Personen</span>
-  </p>
+  ${statsLine(stats)}
 
   ${total ? html`
   <ul class="joblist" id="archiv-liste">
@@ -427,44 +484,87 @@ function adminArchive(ctx, {
   </ul>
   <p class="empty" id="archiv-leer"${stats.prints ? html` hidden` : ''}>Nichts gefunden – versuch es mit einem anderen Suchwort.</p>`
   : html`<p class="empty">Noch keine Drucke im Archiv. Sobald du in der Warteschlange auf <strong>✓ Gedruckt</strong>
-      klickst, landet der Auftrag hier. Frühere Drucke kannst du unten nachtragen.</p>`}
+      klickst, landet der Auftrag hier. Eigene oder ältere Drucke trägst du oben mit <strong>➕ Druck eintragen</strong> ein.</p>`}
 </section>
 
-<section class="card">
-  <details class="add-own"${openNew ? html` open` : ''}>
-    <summary>➕ Früheren Druck nachtragen</summary>
-    <form method="post" action="/admin/archiv/nachtragen" class="form">
-      <input type="hidden" name="csrf_token" value="${ctx.csrf}">
-      ${jobFields(newValues, { admin: true, printedDate: true })}
-      <button class="btn btn-primary" type="submit">Ins Archiv aufnehmen</button>
-    </form>
-  </details>
-
-  <details class="add-own"${openImport ? html` open` : ''}>
-    <summary>📋 Mehrere MakerWorld-Links auf einmal nachtragen</summary>
-    <form method="post" action="/admin/archiv/import" class="form">
-      <input type="hidden" name="csrf_token" value="${ctx.csrf}">
-      <label class="field">
-        <span>Links <em>*</em> <small>(einer pro Zeile, höchstens 50)</small></span>
-        <textarea name="links" rows="6" required spellcheck="false"
-                  placeholder="https://makerworld.com/de/models/…&#10;https://makerworld.com/de/models/…">${importValues.links}</textarea>
-      </label>
-      <div class="row row-even">
-        <label class="field">
-          <span>Für wen <em>*</em></span>
-          <input name="requester" maxlength="60" required value="${importValues.requester}">
-        </label>
-        <label class="field">
-          <span>Gedruckt am <em>*</em></span>
-          <input name="printed_at" type="date" required value="${importValues.printedAt}">
-        </label>
-      </div>
-      <button class="btn btn-primary" type="submit">Alle ins Archiv aufnehmen</button>
-    </form>
-  </details>
-</section>
 <script src="/archiv.js" defer></script>`;
   return layout(ctx, { title: 'Druck-Archiv', body });
+}
+
+/** Eigenständige HTML-Datei mit allen Drucken – mit Suche, Filter und Sortierung, auch offline. */
+function archiveExport({ entries, people, stats, exportedAt, day }) {
+  return html`<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Druck-Archiv – Stand ${exportedAt}</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+  <style>
+${raw(EXPORT_CSS)}
+    body { padding-top: 24px; }
+    .export-foot { margin: 8px 0 32px; }
+    @media print {
+      body { background: #fff; color: #000; padding: 0; }
+      .archive-filters, .export-foot { display: none !important; }
+      .card { box-shadow: none; border: 0; padding: 0; }
+      .job { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="admin-head">
+      <h1>📚 Druck-Archiv</h1>
+      <span class="muted small">Stand: ${exportedAt}</span>
+    </div>
+    <section class="card">
+      <form id="filter" class="archive-filters" role="search">
+        <input id="suche" type="search" autocomplete="off" autofocus
+               placeholder="Suchen, z. B. Drache, Mama, 2025" aria-label="Archiv durchsuchen">
+        <select id="person" aria-label="Person">
+          <option value="">Alle Personen</option>
+          ${people.map((p) => html`<option value="${p.name}">${p.name} (${p.count})</option>`)}
+        </select>
+        <select id="sortierung" aria-label="Sortierung">
+          <option value="neu">Neueste zuerst</option>
+          <option value="alt">Älteste zuerst</option>
+          <option value="titel">Titel A–Z</option>
+          <option value="person">Nach Person</option>
+        </select>
+      </form>
+
+      ${statsLine(stats)}
+
+      <ul class="joblist" id="liste">
+        ${entries.map(({ job, text }) => html`
+        <li class="job" data-search="${text}" data-person="${job.requester}" data-date="${job.finishedAt}"
+            data-title="${job.title}" data-qty="${job.quantity || 1}">
+          ${thumb(job)}
+          <div class="job-body">
+            <div class="job-title">${job.title} ${linkBadge(job, { warnMissing: false })}</div>
+            <div class="meta">
+              <span>📅 ${day(job.finishedAt)}</span>
+              <span>👤 ${job.requester}</span>
+              ${job.quantity > 1 ? html`<span>🔢 ${job.quantity}×</span>` : ''}
+              ${job.color ? html`<span>🎨 ${job.color}</span>` : ''}
+            </div>
+            ${job.notes ? html`<p class="notes">📝 ${job.notes}</p>` : ''}
+            ${job.adminNote ? html`<p class="notes admin-note">🛠️ ${job.adminNote}</p>` : ''}
+          </div>
+        </li>`)}
+      </ul>
+      <p class="empty" id="leer"${entries.length ? html` hidden` : ''}>${
+        entries.length ? 'Nichts gefunden – versuch es mit einem anderen Suchwort.' : 'Noch keine Drucke im Archiv.'}</p>
+    </section>
+    <p class="muted small export-foot">Exportiert aus der 3D-Druck-Warteschlange. Diese Datei funktioniert
+      ohne Internet – nur die Vorschaubilder brauchen eine Verbindung.</p>
+  </main>
+  <script>
+${raw(EXPORT_JS)}
+  </script>
+</body>
+</html>`;
 }
 
 function errorPage(ctx, { status, message }) {
@@ -477,4 +577,6 @@ function errorPage(ctx, { status, message }) {
   return layout(ctx, { title: 'Fehler', body });
 }
 
-module.exports = { index, zugang, adminLogin, adminDashboard, adminEdit, adminArchive, errorPage };
+module.exports = {
+  index, zugang, adminLogin, adminDashboard, adminEdit, adminArchive, archiveExport, errorPage,
+};

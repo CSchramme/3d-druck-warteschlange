@@ -370,7 +370,26 @@ function createApp(config, deps = {}) {
     res.type('text/csv; charset=utf-8').send(`\ufeff${csv}\r\n`);
   });
 
-  app.post('/admin/archiv/nachtragen', requireAdmin, async (req, res) => {
+  app.get('/admin/archiv.html', requireAdmin, (req, res) => {
+    const data = store.readData();
+    const entries = archiveEntries(data, { q: '', person: '', sort: 'neu' });
+    const all = entries.map((entry) => entry.job);
+    const file = views.archiveExport({
+      entries,
+      people: jobs.archivePeople(data),
+      stats: {
+        prints: all.length,
+        pieces: all.reduce((sum, job) => sum + (job.quantity || 1), 0),
+        people: new Set(all.map((job) => job.requester)).size,
+      },
+      exportedAt: date(new Date().toISOString()),
+      day,
+    });
+    res.set('Content-Disposition', `attachment; filename="druck-archiv-${isoDay()}.html"`);
+    res.type('html').send(String(file));
+  });
+
+  app.post('/admin/archiv/eintragen', requireAdmin, async (req, res) => {
     const { values, errors } = forms.parseJobForm(req.body, { admin: true });
     const printedAt = forms.parseDate(req.body.printed_at);
     if (!printedAt) errors.push('Bitte gib ein gültiges Druckdatum an (nicht in der Zukunft).');
