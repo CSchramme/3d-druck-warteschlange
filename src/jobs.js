@@ -54,7 +54,7 @@ function writePositions(list) {
   });
 }
 
-/** Genehmigt einen Auftrag (oder holt ihn zurück) und hängt ihn hinten an. */
+/** Gibt einen Auftrag frei (oder holt ihn zurück) und hängt ihn hinten an. */
 function enqueue(data, id) {
   const job = get(data, id);
   const rest = queue(data).filter((other) => other.id !== id);

@@ -65,7 +65,9 @@ async function startApp(overrides = {}) {
     dataDir,
     adminPassword: 'geheim',
     familyPassword: '',
-    discordWebhookUrl: 'https://discord.example/api/webhooks/1/abc',
+    discordWebhookUrl: 'https://discord.example/warteschlange',
+    discordRequestsWebhookUrl: 'https://discord.example/anfragen',
+    discordPingUserId: '',
     discordTopN: 3,
     publicUrl: '',
     timezone: 'Europe/Berlin',
@@ -74,15 +76,23 @@ async function startApp(overrides = {}) {
     secretKey: 'test-secret',
     ...overrides,
   };
-  const sent = [];
+  const sent = []; // Nachrichten an den Warteschlangen-Webhook
+  const requests = []; // Nachrichten an den Anfragen-Webhook
+  const background = [];
   const env = {
     config,
     sent,
+    requests,
     post: async (url, payload) => {
-      sent.push(payload);
+      (url === config.discordRequestsWebhookUrl ? requests : sent).push(payload);
     },
+    /** Wartet, bis alle Hintergrund-Meldungen raus sind. */
+    settle: () => Promise.all(background),
   };
-  const app = createApp(config, { postWebhook: (url, payload) => env.post(url, payload) });
+  const app = createApp(config, {
+    postWebhook: (url, payload) => env.post(url, payload),
+    onBackgroundTask: (promise) => background.push(promise),
+  });
   const server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
   });

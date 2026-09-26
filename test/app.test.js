@@ -12,6 +12,7 @@ beforeEach(async () => {
 afterEach(() => env.close());
 
 const topTitles = (payload) => payload.embeds.map((embed) => embed.title);
+const text = (payload) => JSON.stringify(payload);
 
 async function approveAll(admin, ...titles) {
   for (const title of titles) {
@@ -22,19 +23,59 @@ async function approveAll(admin, ...titles) {
 
 // --- Einreichen -----------------------------------------------------------------
 
-test('Einreichen legt einen wartenden Auftrag an', async () => {
+test('Einreichen legt eine Anfrage an, die öffentlich noch nicht auftaucht', async () => {
   const client = env.client();
-  const res = await client.submit({ title: 'Handyhalter', color: 'Rot', notes: 'fürs Auto' });
+  const res = await client.submit({ title: 'Kabelhalter', color: 'Rot', notes: 'fürs Auto' });
   assert.equal(res.status, 303);
   const [job] = env.byStatus('pending');
-  assert.equal(job.title, 'Handyhalter');
+  assert.equal(job.title, 'Kabelhalter');
   assert.equal(job.requester, 'Oma');
   assert.equal(job.makerworldUrl, null);
-  const page = (await client.get('/')).text;
-  assert.match(page, /Handyhalter/);
-  assert.match(page, /Wartet auf Genehmigung/);
-  assert.match(page, /ist eingegangen/);
-  assert.deepEqual(env.sent, []); // Anfragen allein lösen nichts in Discord aus
+
+  const afterSubmit = (await client.get('/')).text;
+  assert.match(afterSubmit, /Deine Anfrage „Kabelhalter“ ist angekommen/);
+  const later = (await client.get('/')).text;
+  assert.doesNotMatch(later, /Kabelhalter/);
+  assert.match(later, /Gerade ist nichts in der Warteschlange/);
+  assert.deepEqual(env.sent, []); // die Warteschlange hat sich nicht geändert
+});
+
+test('Neue Anfrage wird dir per Discord gemeldet', async () => {
+  env.config.publicUrl = 'https://druck.example';
+  env.config.discordPingUserId = '123456789012345678';
+  await env.client().submit({
+    title: 'Drache', makerworld_url: 'https://makerworld.com/de/models/42', quantity: '2', color: 'Grün',
+  });
+  await env.settle();
+  assert.equal(env.requests.length, 1);
+  const [payload] = env.requests;
+  const [embed] = payload.embeds;
+  assert.match(payload.content, /^<@123456789012345678> 🆕 \*\*Neue Anfrage\*\* von \*\*Oma\*\*: Drache/);
+  assert.deepEqual(payload.allowed_mentions, { parse: [], users: ['123456789012345678'] });
+  assert.equal(embed.title, 'Drache');
+  assert.equal(embed.url, 'https://makerworld.com/de/models/42');
+  assert.match(embed.author.name, /wartet auf deine Freigabe/);
+  assert.match(embed.description, /\(https:\/\/druck\.example\/admin#auftrag-\d+\)/);
+  assert.deepEqual(embed.fields.slice(0, 3).map((f) => f.value), ['Oma', '2×', 'Grün']);
+  assert.equal(env.sent.length, 0);
+});
+
+test('Ohne eigenen Anfragen-Kanal landen Anfragen im normalen Webhook', async () => {
+  env.config.discordRequestsWebhookUrl = '';
+  await env.client().submit({ title: 'Vase' });
+  await env.settle();
+  assert.equal(env.sent.length, 1);
+  assert.match(env.sent[0].content, /Neue Anfrage/);
+});
+
+test('Fehler bei der Anfrage-Meldung erscheint im Admin-Bereich', async () => {
+  env.post = async () => {
+    throw new Error('Discord antwortete mit 404: Unknown Webhook');
+  };
+  await env.client().submit({ title: 'Vase' });
+  await env.settle();
+  const admin = await env.admin();
+  assert.match((await admin.get('/admin')).text, /Unknown Webhook/);
 });
 
 test('Nur MakerWorld-Link reicht, Titel wird ergänzt', async () => {
@@ -130,12 +171,16 @@ test('Familien-Passwort schützt die Startseite', async () => {
   assert.equal((await client.get('/')).status, 200);
 });
 
-// --- Genehmigen & Warteschlange -------------------------------------------------------
+// --- Freigeben & Warteschlange -------------------------------------------------------
 
 test('Discord bekommt nur dann eine Nachricht, wenn sich die Top 3 ändern', async () => {
   const admin = await env.admin();
   await approveAll(admin, 'A', 'B', 'C');
-  assert.deepEqual(env.sent.map(topTitles), [['1. A'], ['1. A', '2. B'], ['1. A', '2. B', '3. C']]);
+  assert.deepEqual(env.sent.map(topTitles), [['A'], ['A', 'B'], ['A', 'B', 'C']]);
+  assert.deepEqual(env.sent[2].embeds.map((e) => e.author.name),
+    ['🥇 Platz 1 · als Nächstes drucken', '🥈 Platz 2', '🥉 Platz 3']);
+  await env.settle();
+  assert.equal(env.requests.length, 3); // jede Anfrage wurde einzeln gemeldet
 
   await approveAll(admin, 'D', 'E'); // landen auf Platz 4 und 5
   assert.equal(env.sent.length, 3);
@@ -146,11 +191,12 @@ test('Discord bekommt nur dann eine Nachricht, wenn sich die Top 3 ändern', asy
 
   await admin.post(`/admin/auftrag/${env.idOf('D')}/top`);
   assert.deepEqual(env.queueTitles(), ['D', 'A', 'B', 'C', 'E']);
-  assert.deepEqual(topTitles(env.sent.at(-1)), ['1. D', '2. A', '3. B']);
+  assert.deepEqual(topTitles(env.sent.at(-1)), ['D', 'A', 'B']);
+  assert.match(env.sent.at(-1).content, /als Nächstes: \*\*D\*\*/);
 
   await admin.post(`/admin/auftrag/${env.idOf('D')}/done`);
   assert.deepEqual(env.queueTitles(), ['A', 'B', 'C', 'E']);
-  assert.deepEqual(topTitles(env.sent.at(-1)), ['1. A', '2. B', '3. C']);
+  assert.deepEqual(topTitles(env.sent.at(-1)), ['A', 'B', 'C']);
   assert.equal(env.sent.length, 5);
 
   await admin.post(`/admin/auftrag/${env.idOf('E')}/delete`);
@@ -172,8 +218,8 @@ test('Bearbeiten eines Top-Auftrags schickt ihn neu', async () => {
     requester: 'Oma', title: 'A', quantity: '2', admin_note: 'PETG',
   });
   assert.equal(env.sent.length, 2);
-  assert.match(env.sent[1].embeds[0].description, /2×/);
-  assert.match(env.sent[1].embeds[0].description, /PETG/);
+  assert.match(text(env.sent[1].embeds[0]), /2×/);
+  assert.match(text(env.sent[1].embeds[0]), /PETG/);
 });
 
 test('Admin kann eigene Aufträge direkt einreihen', async () => {
@@ -183,7 +229,7 @@ test('Admin kann eigene Aufträge direkt einreihen', async () => {
   assert.equal(env.sent.length, 1);
 });
 
-test('Zurückholen und Genehmigung zurücknehmen', async () => {
+test('Zurückholen und Freigabe zurücknehmen', async () => {
   const admin = await env.admin();
   await approveAll(admin, 'A', 'B');
   await admin.post(`/admin/auftrag/${env.idOf('A')}/done`);
@@ -216,7 +262,7 @@ test('Fehlgeschlagener Discord-Versand wird bei der nächsten Änderung wiederho
 
   env.post = working;
   await approveAll(admin, 'B');
-  assert.deepEqual(topTitles(env.sent.at(-1)), ['1. A', '2. B']);
+  assert.deepEqual(topTitles(env.sent.at(-1)), ['A', 'B']);
   assert.doesNotMatch((await admin.get('/admin')).text, /Discord antwortete/);
 });
 
@@ -229,8 +275,11 @@ test('„Jetzt senden“ schickt auch ohne Änderung', async () => {
 
 test('Ohne Webhook wird nichts gesendet', async () => {
   env.config.discordWebhookUrl = '';
+  env.config.discordRequestsWebhookUrl = '';
   const admin = await env.admin();
   await approveAll(admin, 'A');
+  await env.settle();
   assert.deepEqual(env.sent, []);
+  assert.deepEqual(env.requests, []);
   assert.match((await admin.get('/admin')).text, /noch kein Discord-Webhook/);
 });

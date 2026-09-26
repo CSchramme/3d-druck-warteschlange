@@ -7,6 +7,10 @@ const { isMakerworld } = require('./makerworld');
 
 function layout(ctx, { title, body }) {
   const { isAdmin, csrf, flashes } = ctx;
+  // Fehler bleiben stehen; Erfolgsmeldungen erscheinen als Einblendung, die
+  // man auch sieht, wenn die Seite zu einem Auftrag weiter unten springt.
+  const errors = flashes.filter((f) => f.type === 'error');
+  const notices = flashes.filter((f) => f.type !== 'error');
   return html`<!doctype html>
 <html lang="de">
 <head>
@@ -33,12 +37,18 @@ function layout(ctx, { title, body }) {
     </div>
   </header>
   <main class="wrap">
-    ${flashes.length ? html`<div class="flashes">
-      ${flashes.map((f) => html`<div class="flash flash-${f.type}">${f.message}</div>`)}
+    ${errors.length ? html`<div class="flashes">
+      ${errors.map((f) => html`<div class="flash flash-error">${f.message}</div>`)}
+    </div>` : ''}
+    ${notices.length ? html`<div class="toasts" role="status">
+      ${notices.map((f) => html`<div class="flash toast flash-${f.type}">${f.message}</div>`)}
     </div>` : ''}
     ${body}
   </main>
   <script>
+    document.addEventListener('click', function (e) {
+      if (e.target.classList.contains('toast')) e.target.remove();
+    });
     document.addEventListener('submit', function (e) {
       var message = e.target.getAttribute('data-confirm');
       if (message && !window.confirm(message)) e.preventDefault();
@@ -124,13 +134,13 @@ function thumb(job) {
 
 // --- Öffentliche Seiten ---------------------------------------------------------
 
-function index(ctx, { values, pending, queue, done, topN }) {
+function index(ctx, { values, queue, done, topN }) {
   const body = html`
 <div class="columns">
   <section class="card" id="einreichen">
     <h1>Druckauftrag einreichen</h1>
     <p class="lead">Füg einen <strong>MakerWorld-Link</strong> ein oder beschreib, was du gedruckt haben möchtest.
-      Jeder Auftrag wird erst geprüft und landet dann in der Warteschlange.</p>
+      Jede Anfrage wird erst geprüft und freigegeben – danach taucht sie in der Warteschlange auf.</p>
     <form method="post" action="/auftrag" class="form">
       <input type="hidden" name="csrf_token" value="${ctx.csrf}">
       <div class="hp" aria-hidden="true">
@@ -156,21 +166,6 @@ function index(ctx, { values, pending, queue, done, topN }) {
           </li>`)}
       </ol>` : html`<p class="empty">Gerade ist nichts in der Warteschlange.</p>`}
     </section>
-
-    ${pending.length ? html`
-    <section class="card">
-      <h2>Wartet auf Genehmigung <span class="count">${pending.length}</span></h2>
-      <ul class="joblist">
-        ${pending.map((job) => html`
-          <li class="job">
-            ${thumb(job)}
-            <div class="job-body">
-              <div class="job-title">${job.title} ${linkBadge(job)}</div>
-              ${jobMeta(ctx, job)}
-            </div>
-          </li>`)}
-      </ul>
-    </section>` : ''}
 
     ${done.length ? html`
     <section class="card">
@@ -247,7 +242,7 @@ function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValue
 </div>
 
 <section class="card" id="anfragen">
-  <h2>Neue Anfragen <span class="count">${pending.length}</span></h2>
+  <h2>Warten auf Freigabe <span class="count">${pending.length}</span></h2>
   ${pending.length ? html`<ul class="joblist">
     ${pending.map((job) => html`
       <li class="job job-admin" id="auftrag-${job.id}">
@@ -257,7 +252,7 @@ function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValue
           ${jobMeta(ctx, job)}
           ${jobDetails(job)}
           <div class="actions">
-            ${action(ctx, job, 'approve', '✓ Genehmigen', { cls: 'btn btn-primary' })}
+            ${action(ctx, job, 'approve', '✓ Freigeben', { cls: 'btn btn-primary' })}
             <a class="btn" href="/admin/auftrag/${job.id}/bearbeiten">Bearbeiten</a>
             ${action(ctx, job, 'reject', 'Ablehnen', { cls: 'btn btn-danger-soft', confirm: `„${job.title}“ ablehnen?` })}
           </div>
@@ -288,7 +283,7 @@ function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValue
             </span>
             ${action(ctx, job, 'done', '✓ Gedruckt', { cls: 'btn btn-primary' })}
             <a class="btn" href="/admin/auftrag/${job.id}/bearbeiten">Bearbeiten</a>
-            ${action(ctx, job, 'unapprove', 'Zurück zu Anfragen')}
+            ${action(ctx, job, 'unapprove', 'Freigabe zurücknehmen')}
             ${action(ctx, job, 'delete', 'Löschen', { cls: 'btn btn-danger-soft', confirm: `„${job.title}“ wirklich löschen?` })}
           </div>
         </div>
@@ -328,10 +323,14 @@ function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValue
   <h2>Discord</h2>
   ${discord.configured ? html`
   <dl class="facts">
-    <dt>Gemeldet werden</dt><dd>die obersten ${discord.topN} Aufträge</dd>
+    <dt>Warteschlange</dt><dd>die obersten ${discord.topN} Aufträge, sobald sich an ihnen etwas ändert</dd>
+    <dt>Neue Anfragen</dt><dd>werden sofort gemeldet${discord.separateRequestsChannel ? ' (eigener Kanal)' : ''}${
+      discord.pingsUser ? ', mit Ping an dich' : ''}</dd>
     <dt>Zuletzt gesendet</dt><dd>${discord.lastSentAt ? ctx.date(discord.lastSentAt) : 'noch nie'}</dd>
     ${discord.error ? html`<dt>Letzter Fehler</dt><dd class="error-text">${ctx.date(discord.error.at)} – ${discord.error.message}</dd>` : ''}
   </dl>
+  ${discord.hasPublicUrl ? '' : html`<p class="hint-warn">Tipp: Trag <code>PUBLIC_URL</code> ein (z. B.
+    <code>https://druck.deine-domain.de</code>) – dann kommst du aus Discord mit einem Klick direkt zur Freigabe.</p>`}
   <form method="post" action="/admin/discord/senden">
     <input type="hidden" name="csrf_token" value="${ctx.csrf}">
     <button class="btn" type="submit">Jetzt an Discord senden</button>

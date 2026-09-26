@@ -1,9 +1,10 @@
 # 🖨️ 3D-Druck-Warteschlange
 
 Eine kleine Website, über die Familie und Freunde 3D-Druckaufträge einreichen
-können. Du genehmigst jeden Auftrag, sortierst die Warteschlange, und die
-**obersten 3 Aufträge** werden automatisch in deinen **Discord-Kanal**
-geschickt – aber **nur, wenn sich an ihnen etwas ändert**.
+können. Jede neue Anfrage wird dir **sofort per Discord gemeldet**, du gibst sie
+frei, sortierst die Warteschlange, und die **obersten 3 Aufträge** landen
+automatisch in deinem **Discord-Kanal** – aber **nur, wenn sich an ihnen etwas
+ändert**.
 
 Läuft mit **Node.js** (ab Version 18), z. B. direkt in **Plesk**. Es wird keine
 Datenbank gebraucht – alles liegt in kleinen Dateien im Ordner `data/`.
@@ -15,11 +16,13 @@ Datenbank gebraucht – alles liegt in kleinen Dateien im Ordner `data/`.
    - beschreibt ohne Link, was gedruckt werden soll. Solche Aufträge sind überall
      mit **„kein Link“** markiert: Das Modell musst du selbst besorgen oder erstellen.
 
-   Dazu kommen Anzahl, Farbe/Material und Wünsche.
-2. **Genehmigen** – Unter `/admin` siehst du alle neuen Anfragen und kannst sie
-   **genehmigen**, **bearbeiten** (z. B. selbst einen Link nachtragen oder eine
-   Notiz wie „PETG, 0,2 mm“ dazuschreiben) oder **ablehnen**.
-3. **Warteschlange** – Genehmigte Aufträge werden hinten angehängt. Mit
+   Dazu kommen Anzahl, Farbe/Material und Wünsche. Du bekommst sofort eine
+   Discord-Nachricht „Neue Anfrage – wartet auf deine Freigabe“ mit Link.
+   Öffentlich sichtbar wird die Anfrage erst, wenn du sie freigegeben hast.
+2. **Freigeben** – Unter `/admin` siehst du ganz oben alle offenen Anfragen und
+   kannst sie **freigeben**, **bearbeiten** (z. B. selbst einen Link nachtragen
+   oder eine Notiz wie „PETG, 0,2 mm“ dazuschreiben) oder **ablehnen**.
+3. **Warteschlange** – Freigegebene Aufträge werden hinten angehängt. Mit
    ⤒ ↑ ↓ ⤓ änderst du die Reihenfolge, mit **✓ Gedruckt** ist ein Auftrag fertig.
    Eigene Aufträge kannst du direkt in die Warteschlange legen.
 4. **Discord** – Nach jeder Änderung wird geprüft, ob sich die obersten 3
@@ -83,8 +86,14 @@ Im selben Node.js-Fenster unter **Benutzerdefinierte Umgebungsvariablen**
 | `ADMIN_PASSWORD` | dein Passwort für `/admin` (**Pflicht**) |
 | `FAMILY_PASSWORD` | Passwort für die Familie (empfohlen, sonst kann jeder einreichen) |
 | `DISCORD_WEBHOOK_URL` | die Webhook-URL aus Schritt 1 |
-| `PUBLIC_URL` | z. B. `https://druck.deine-domain.de` (optional, dann ist in Discord ein Link zum Admin-Bereich) |
+| `PUBLIC_URL` | z. B. `https://druck.deine-domain.de` (empfohlen: dann kommst du aus Discord mit einem Klick zur Freigabe) |
 | `COOKIE_SECURE` | `true`, sobald HTTPS aktiv ist |
+| `DISCORD_PING_USER_ID` | optional: deine Discord-Benutzer-ID – dann wirst du bei neuen Anfragen angepingt und bekommst sicher eine Push-Nachricht |
+| `DISCORD_WEBHOOK_URL_ANFRAGEN` | optional: eigener Webhook, falls neue Anfragen in einen anderen Kanal sollen |
+
+Deine Benutzer-ID findest du so: Discord → Einstellungen → Erweitert →
+**Entwicklermodus** einschalten, dann Rechtsklick auf deinen Namen → **Benutzer-ID
+kopieren**.
 
 Weitere, seltener gebrauchte Einstellungen stehen in `.env.example`. Statt in
 Plesk kannst du die Werte auch in eine Datei `.env` im Anwendungsstamm schreiben
@@ -115,6 +124,10 @@ ADMIN_PASSWORD=… DISCORD_WEBHOOK_URL=… npm start   # läuft auf Port 3000 (o
   von der MakerWorld-Seite zu laden. Blockiert MakerWorld das (Bot-Schutz),
   heißt der Auftrag einfach „MakerWorld-Modell 12345“ – Titel und Vorschaubild
   kannst du jederzeit unter **Bearbeiten** ändern.
+- **Nachrichten ohne Kästen (Embeds)?** Dann fehlt im Discord-Kanal die
+  Berechtigung **„Links einbetten“** für `@everyone` (Webhooks nutzen deren
+  Rechte), oder in deiner Discord-App ist unter Einstellungen → Chat
+  **„Eingebettete Inhalte und Link-Vorschauen anzeigen“** ausgeschaltet.
 - **Discord nicht erreichbar?** Dann steht im Admin-Bereich unter „Discord“ der
   Fehler. Beim nächsten Klick wird automatisch neu versucht, oder du drückst
   **Jetzt an Discord senden**.

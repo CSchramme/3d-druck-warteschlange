@@ -142,6 +142,18 @@ textarea { resize: vertical; }
 .flash { padding: 12px 16px; border-radius: 10px; background: var(--info-soft); }
 .flash-success { background: var(--accent-soft); }
 .flash-error { background: var(--danger-soft); color: var(--danger); }
+.toasts {
+  position: fixed; z-index: 10; top: 12px; left: 50%; transform: translateX(-50%);
+  width: min(620px, calc(100% - 32px)); display: grid; gap: 8px; pointer-events: none;
+}
+.toast {
+  pointer-events: auto; cursor: pointer;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18); border: 1px solid var(--border);
+  animation: toast-in .25s ease-out, toast-out .4s ease-in 8s forwards;
+}
+@keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(-8px); visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: toast-out 0s linear 10s forwards; } }
 
 /* Auftragslisten */
 .joblist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
@@ -151,6 +163,7 @@ textarea { resize: vertical; }
   background: var(--surface);
 }
 .job-next { border-color: var(--accent); background: var(--accent-soft); }
+.job:target { outline: 3px solid var(--discord); outline-offset: 2px; }
 .job-body { flex: 1; min-width: 0; }
 .job-title { font-weight: 600; overflow-wrap: anywhere; }
 .pos {

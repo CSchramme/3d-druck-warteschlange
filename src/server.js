@@ -14,11 +14,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // aktion -> was passiert, welche Meldung, bei welchem Status erlaubt
 const ACTIONS = {
-  approve: { run: jobs.enqueue, message: '„%s“ ist genehmigt und steht jetzt in der Warteschlange.', allowed: ['pending'] },
+  approve: { run: jobs.enqueue, message: '„%s“ ist freigegeben und steht jetzt auf Platz %p der Warteschlange.', allowed: ['pending'] },
   reject: { run: jobs.reject, message: '„%s“ wurde abgelehnt.', allowed: ['pending', 'queued'] },
   done: { run: jobs.markDone, message: '„%s“ ist als gedruckt markiert. 🎉', allowed: ['queued'] },
-  restore: { run: jobs.enqueue, message: '„%s“ steht wieder in der Warteschlange.', allowed: ['done', 'rejected'] },
-  unapprove: { run: jobs.backToPending, message: '„%s“ wartet wieder auf Genehmigung.', allowed: ['queued'] },
+  restore: { run: jobs.enqueue, message: '„%s“ steht wieder in der Warteschlange (Platz %p).', allowed: ['done', 'rejected'] },
+  unapprove: { run: jobs.backToPending, message: '„%s“ wartet wieder auf Freigabe.', allowed: ['queued'] },
   up: { run: (d, id) => jobs.move(d, id, 'up'), allowed: ['queued'] },
   down: { run: (d, id) => jobs.move(d, id, 'down'), allowed: ['queued'] },
   top: { run: (d, id) => jobs.move(d, id, 'top'), allowed: ['queued'] },
@@ -96,7 +96,6 @@ function createApp(config, deps = {}) {
     const data = store.readData();
     res.page('index', {
       values: values || { requester: req.session.name || '', quantity: 1 },
-      pending: jobs.pending(data),
       queue: jobs.queue(data),
       done: jobs.finished(data, 10).filter((job) => job.status === 'done'),
       topN: config.discordTopN,
@@ -115,10 +114,16 @@ function createApp(config, deps = {}) {
       return renderIndex(req, res, values, 400);
     }
     await forms.completeFromMakerworld(values, config.fetchMakerworldInfo);
-    await store.updateData((data) => jobs.create(data, values));
+    const job = await store.updateData((data) => jobs.create(data, values));
     req.session.name = values.requester;
-    req.flash('success', `Danke! Dein Auftrag „${values.title}“ ist eingegangen und wartet jetzt auf Genehmigung.`);
+    req.flash('success', `Danke! Deine Anfrage „${job.title}“ ist angekommen. Sobald sie freigegeben ist, `
+      + 'erscheint sie hier in der Warteschlange.');
     res.redirect(303, '/');
+
+    // Dir per Discord Bescheid geben – im Hintergrund, damit niemand warten muss.
+    const notified = discord.notifyNewRequest(store, config, job, { post: deps.postWebhook })
+      .catch((err) => console.error('Discord-Meldung für neue Anfrage fehlgeschlagen:', err));
+    if (deps.onBackgroundTask) deps.onBackgroundTask(notified);
   });
 
   app.get('/zugang', (req, res) => {
@@ -231,17 +236,24 @@ function createApp(config, deps = {}) {
       if (!spec.allowed.includes(job.status)) return { invalid: true };
       const title = job.title;
       spec.run(data, id);
-      return { title };
+      const after = jobs.get(data, id);
+      return { title, position: after ? after.position : null };
     });
     if (outcome.missing) return next();
     if (outcome.invalid) {
       req.flash('error', 'Das geht bei diesem Auftrag gerade nicht.');
       return res.redirect(303, '/admin');
     }
-    if (spec.message) req.flash('success', spec.message.replace('%s', outcome.title));
+    if (spec.message) {
+      req.flash('success', spec.message.replace('%s', outcome.title).replace('%p', outcome.position));
+    }
     await syncDiscord(req);
-    const anchor = req.params.action === 'delete' ? 'warteschlange' : `auftrag-${id}`;
-    res.redirect(303, `/admin#${anchor}`);
+    // Nach Freigeben/Ablehnen oben bleiben (dort stehen die Anfragen), damit du
+    // direkt die nächste bearbeiten kannst; sonst zum Auftrag springen.
+    const anchor = {
+      approve: '', reject: '', unapprove: '', delete: '#warteschlange', done: '#warteschlange',
+    }[req.params.action] ?? `#auftrag-${id}`;
+    res.redirect(303, `/admin${anchor}`);
   });
 
   app.post('/admin/discord/senden', requireAdmin, async (req, res) => {
