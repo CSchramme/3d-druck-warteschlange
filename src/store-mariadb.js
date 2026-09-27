@@ -11,6 +11,7 @@
 // Logik in jobs.js bekommt { nextId, jobs } und verändert das Objekt; danach
 // schreibt updateData() genau die geänderten Zeilen in einer Transaktion zurück.
 
+const { AsyncLocalStorage } = require('async_hooks');
 const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');
@@ -170,13 +171,18 @@ function createMariaDbStore(db, { importDir = null } = {}) {
   // Sperren gelten serverweit – deshalb Datenbank und Präfix im Namen.
   const lockName = (name) => `druck:${db.database}:${prefix}:${name}`.slice(0, 64);
 
+  // Wer eine Sperre hält, liest und schreibt über deren Verbindung. Sonst könnten
+  // alle Verbindungen von Wartenden (GET_LOCK) belegt sein, und der Inhaber der
+  // Sperre bekäme keine mehr – dann ginge nichts mehr voran.
+  const lockConnection = new AsyncLocalStorage();
+
   async function withLock(name, fn) {
     const conn = await pool.getConnection();
     try {
       const [[{ ok }]] = await conn.query('SELECT GET_LOCK(?, ?) AS ok', [lockName(name), LOCK_TIMEOUT_S]);
       if (ok !== 1) throw new Error(`Datenbank-Sperre „${name}“ ist dauerhaft belegt`);
       try {
-        return await fn(conn);
+        return await lockConnection.run(conn, () => fn(conn));
       } finally {
         await conn.query('SELECT RELEASE_LOCK(?)', [lockName(name)]);
       }
@@ -281,6 +287,8 @@ function createMariaDbStore(db, { importDir = null } = {}) {
   const api = {
 
     async readData() {
+      const locked = lockConnection.getStore();
+      if (locked) return load(locked);
       const conn = await pool.getConnection();
       try {
         return await load(conn);
@@ -300,11 +308,11 @@ function createMariaDbStore(db, { importDir = null } = {}) {
     },
 
     async readState(name) {
-      return (await readStateWith(pool, name)) || {};
+      return (await readStateWith(lockConnection.getStore() || pool, name)) || {};
     },
 
     async writeState(name, value) {
-      await writeStateWith(pool, name, value);
+      await writeStateWith(lockConnection.getStore() || pool, name, value);
     },
 
     withLock: (name, fn) => withLock(name, () => fn()),

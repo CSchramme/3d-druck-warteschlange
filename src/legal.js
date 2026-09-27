@@ -48,6 +48,8 @@ Damit die Seite als App funktioniert und schneller lädt, werden außerdem Ausse
 ## Was gespeichert wird
 Wenn du einen Auftrag einreichst: dein Name, der Link bzw. deine Beschreibung, Anzahl, Farbe, Wünsche und der Zeitpunkt. Das wird gebraucht, um den Auftrag zu bearbeiten. Freigegebene Aufträge erscheinen mit Namen in der öffentlichen Warteschlange; erledigte Aufträge bleiben im Druck-Archiv, bis sie gelöscht werden.
 
+Damit niemand die Seite mit Anfragen überflutet, merkt sich die Seite beim Abschicken für eine Minute einen verschlüsselten Kurzwert deiner IP-Adresse – die Adresse selbst wird nicht gespeichert.
+
 ## Weitergabe
 - Neue Anfragen und die Warteschlange werden in einen privaten Discord-Kanal geschickt (Discord Inc., USA).
 - Vorschaubilder von MakerWorld werden direkt von MakerWorld geladen; dabei sieht MakerWorld deine IP-Adresse.

@@ -112,6 +112,20 @@ test('Viele gleichzeitige Änderungen gehen nicht verloren', { skip }, async () 
   });
 });
 
+test('Viele Wartende auf dieselbe Sperre blockieren den Inhaber nicht', { skip }, async () => {
+  // Mehr Wartende als Verbindungen (5): Der Inhaber muss trotzdem lesen und schreiben können.
+  await withStore(async (store) => {
+    const started = Date.now();
+    await Promise.all(Array.from({ length: 20 }, () => store.withLock('zaehler', async () => {
+      const state = await store.readState('zaehler');
+      const data = await store.readData();
+      await store.writeState('zaehler', { n: (state.n || 0) + 1, jobs: data.jobs.length });
+    })));
+    assert.equal((await store.readState('zaehler')).n, 20);
+    assert.ok(Date.now() - started < 10_000, 'kein Hängen bis zur Zeitüberschreitung');
+  });
+});
+
 test('Alte Daten aus den JSON-Dateien werden einmalig übernommen', { skip }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'druck-import-'));
   const old = {

@@ -87,6 +87,8 @@ function loadConfig(overrides = {}) {
     adminPassword: env.ADMIN_PASSWORD || '',
     minFormSeconds: Number.isFinite(parseFloat(env.MIN_FORM_SECONDS)) ? parseFloat(env.MIN_FORM_SECONDS) : 2,
     maxPending: parseInt(env.MAX_PENDING, 10) || 50,
+    maxRequestsPerMinute: Math.max(parseInt(env.MAX_ANFRAGEN_PRO_MINUTE, 10) || 5, 1),
+    rateWindowMs: 60_000,
     loginDelayMs: 1000,
     discordBotToken: (env.DISCORD_BOT_TOKEN || '').trim(),
     discordChannelId: snowflake(env.DISCORD_CHANNEL_ID),

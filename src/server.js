@@ -9,6 +9,7 @@ const forms = require('./forms');
 const jobs = require('./jobs');
 const legal = require('./legal');
 const pwa = require('./pwa');
+const rateLimit = require('./ratelimit');
 const views = require('./views');
 const { createStorage, databaseHint } = require('./storage');
 const users = require('./users');
@@ -271,6 +272,16 @@ function createApp(config, deps = {}) {
     if (errors.length) {
       errors.forEach((error) => req.flash('error', error));
       return renderIndex(req, res, values, 400);
+    }
+    // Höchstens ein paar Anfragen pro Minute und Besucher.
+    const allowed = await rateLimit.take(store, rateLimit.keyFor(rateLimit.clientAddress(req), config.secretKey), {
+      limit: config.maxRequestsPerMinute, windowMs: config.rateWindowMs,
+    });
+    if (!allowed.ok) {
+      req.flash('error', `Du hast in der letzten Minute schon ${config.maxRequestsPerMinute} Anfragen geschickt. `
+        + `Bitte warte noch ${allowed.retryAfter} ${allowed.retryAfter === 1 ? 'Sekunde' : 'Sekunden'} und schick sie dann nochmal ab.`);
+      res.set('Retry-After', String(allowed.retryAfter));
+      return renderIndex(req, res, values, 429);
     }
     await forms.completeFromMakerworld(values, config.fetchMakerworldInfo);
     const job = await store.updateData((data) => jobs.create(data, values));

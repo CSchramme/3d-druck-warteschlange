@@ -255,8 +255,12 @@ ADMIN_PASSWORD=… DISCORD_WEBHOOK_URL=… npm start   # läuft auf Port 3000 (o
 
 - **Spam-Schutz:** Weil die Startseite offen ist, hat das Formular ein
   unsichtbares Fangfeld für Bots, muss mindestens 2 Sekunden offen sein, bevor es
-  abgeschickt wird, und nimmt keine neuen Anfragen mehr an, wenn schon 50 auf
-  Freigabe warten (einstellbar mit `MIN_FORM_SECONDS` und `MAX_PENDING`).
+  abgeschickt wird, nimmt von jedem Besucher **höchstens 5 Anfragen pro Minute**
+  an und keine neuen mehr, wenn schon 50 auf Freigabe warten (einstellbar mit
+  `MIN_FORM_SECONDS`, `MAX_ANFRAGEN_PRO_MINUTE` und `MAX_PENDING`). Wer zu schnell
+  ist, bekommt eine Meldung, wie viele Sekunden er noch warten muss – seine
+  Eingaben bleiben stehen. Besucher werden an ihrer IP-Adresse erkannt; alle im
+  selben WLAN teilen sich deshalb die 5 pro Minute.
 - **Passwort vergessen oder ausgesperrt?** npm-Befehl `passwort <benutzername>`
   ausführen – das neue Passwort steht in der Ausgabe. Oder jemand anderes mit
   Konto setzt dir unter **Konten** ein neues.

@@ -32,14 +32,15 @@ function createTestStore(dataDir) {
 }
 
 class Client {
-  constructor(base) {
+  constructor(base, headers = {}) {
     this.base = base;
+    this.headers = headers;
     this.cookie = '';
     this.token = null;
   }
 
   async request(method, url, form) {
-    const headers = {};
+    const headers = { ...this.headers };
     if (this.cookie) headers.cookie = this.cookie;
     let body;
     if (form) {
@@ -98,6 +99,8 @@ async function startApp(overrides = {}, { store: givenStore, discordApi } = {}) 
     adminPassword: 'einrichtungs-code',
     minFormSeconds: 0,
     maxPending: 50,
+    maxRequestsPerMinute: 1000, // viele Tests schicken schnell hintereinander ab; eigener Test in app.test.js
+    rateWindowMs: 60_000,
     loginDelayMs: 0,
     discordWebhookUrl: 'https://discord.example/warteschlange',
     discordRequestsWebhookUrl: 'https://discord.example/anfragen',
@@ -139,7 +142,7 @@ async function startApp(overrides = {}, { store: givenStore, discordApi } = {}) 
     app,
     store,
     dataDir,
-    client: () => new Client(base),
+    client: (headers) => new Client(base, headers),
     /** Legt bei Bedarf das Test-Konto „admin“ an und meldet sich damit an. */
     admin: async () => {
       if (!(await store.findUser('admin'))) await env.createUser('admin', 'geheim123', 'Admin');
