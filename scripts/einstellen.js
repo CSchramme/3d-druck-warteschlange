@@ -34,13 +34,31 @@ function updateEnvText(text, assignments) {
   return lines.length ? `${lines.join('\n')}\n` : '';
 }
 
+const NAME = /^[A-Z][A-Z0-9_]*$/;
+const ASSIGNMENT = /^[A-Z][A-Z0-9_]*=/;
+
+/**
+ * Fügt auseinandergerissene Angaben wieder zusammen – Handy-Tastaturen setzen
+ * gern ein Leerzeichen hinter das „=“: „NAME= wert“, „NAME = wert“, „NAME =wert“.
+ */
+function joinSplitArgs(args) {
+  const joined = [];
+  for (let i = 0; i < args.length; i++) {
+    let arg = args[i];
+    if (NAME.test(arg) && i + 1 < args.length && args[i + 1].startsWith('=')) arg += args[++i];
+    if (/^[A-Z][A-Z0-9_]*=$/.test(arg) && i + 1 < args.length && !ASSIGNMENT.test(args[i + 1])) arg += args[++i];
+    joined.push(arg);
+  }
+  return joined;
+}
+
 /** Liest „NAME=wert“-Argumente. Ungültige Namen -> Fehler. */
 function parseAssignments(args) {
   const assignments = {};
-  for (const arg of args) {
+  for (const arg of joinSplitArgs(args)) {
     const eq = arg.indexOf('=');
     const name = eq === -1 ? arg : arg.slice(0, eq);
-    if (eq === -1 || !/^[A-Z][A-Z0-9_]*$/.test(name)) {
+    if (eq === -1 || !NAME.test(name)) {
       throw new Error(`„${arg}“ verstehe ich nicht – bitte so: NAME=wert (Name in GROSSBUCHSTABEN).`);
     }
     assignments[name] = arg.slice(eq + 1);

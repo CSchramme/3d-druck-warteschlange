@@ -160,6 +160,12 @@ test('.env schreiben: ändern, ergänzen, entfernen – und zurücklesen ergibt 
   assert.deepEqual(parseEnvText(text), { DB_NAME: 'neu', DB_PASSWORD: 'Zn"sc#gd M4.0' });
   assert.throws(() => parseAssignments(['kleinbuchstaben=x']), /GROSSBUCHSTABEN/);
   assert.throws(() => parseAssignments(['OHNE_WERT']), /NAME=wert/);
+  // Leerzeichen um das „=“ (Handy-Tastatur) – wird wieder zusammengefügt.
+  assert.deepEqual(parseAssignments(['DISCORD_PING_USER_ID=', '1553752162520006791']),
+    { DISCORD_PING_USER_ID: '1553752162520006791' });
+  assert.deepEqual(parseAssignments(['A', '=', '1', 'B', '=2', 'C=', 'D=4']), { A: '1', B: '2', C: '', D: '4' });
+  assert.deepEqual(parseAssignments(['DB_HOST=', 'DB_NAME=x']), { DB_HOST: '', DB_NAME: 'x' });
+  assert.throws(() => parseAssignments(['1553752162520006791']), /NAME=wert/);
 });
 
 // --- passwort & pruefen (als echte npm-Befehle) ------------------------------------------
