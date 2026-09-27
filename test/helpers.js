@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const { createApp } = require('../src/server');
+const { hashPassword } = require('../src/users');
 const { createFileStore } = require('../src/store');
 const { createMariaDbStore } = require('../src/store-mariadb');
 
@@ -60,7 +61,7 @@ class Client {
 
   async csrf() {
     if (!this.token) {
-      const page = await this.get('/admin/login');
+      const page = await this.get('/');
       this.token = /name="csrf_token" value="([^"]+)"/.exec(page.text)[1];
     }
     return this.token;
@@ -74,9 +75,9 @@ class Client {
     return this.post('/auftrag', { requester: 'Oma', quantity: '1', ...fields });
   }
 
-  async loginAdmin() {
-    const res = await this.post('/admin/login', { password: 'geheim' });
-    if (res.status !== 303) throw new Error('Admin-Login fehlgeschlagen');
+  async login(username = 'admin', password = 'geheim123') {
+    const res = await this.post('/admin/login', { username, password });
+    if (res.status !== 303) throw new Error(`Login fehlgeschlagen (${res.status})`);
     return this;
   }
 }
@@ -86,8 +87,10 @@ async function startApp(overrides = {}, { store: givenStore } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'druck-test-'));
   const config = {
     dataDir,
-    adminPassword: 'geheim',
-    familyPassword: '',
+    adminPassword: 'einrichtungs-code',
+    minFormSeconds: 0,
+    maxPending: 50,
+    loginDelayMs: 0,
     discordWebhookUrl: 'https://discord.example/warteschlange',
     discordRequestsWebhookUrl: 'https://discord.example/anfragen',
     discordPingUserId: '',
@@ -127,7 +130,14 @@ async function startApp(overrides = {}, { store: givenStore } = {}) {
     store,
     dataDir,
     client: () => new Client(base),
-    admin: () => new Client(base).loginAdmin(),
+    /** Legt bei Bedarf das Test-Konto „admin“ an und meldet sich damit an. */
+    admin: async () => {
+      if (!(await store.findUser('admin'))) await env.createUser('admin', 'geheim123', 'Admin');
+      return new Client(base).login();
+    },
+    createUser: async (username, password, displayName = username) => store.createUser({
+      username, displayName, passwordHash: await hashPassword(password),
+    }),
     data: () => store.readData(),
     byStatus: async (status) => (await store.readData()).jobs.filter((job) => job.status === status),
     queueTitles: async () => require('../src/jobs').queue(await store.readData()).map((job) => job.title),

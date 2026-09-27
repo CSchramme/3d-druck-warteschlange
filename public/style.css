@@ -210,6 +210,24 @@ textarea { resize: vertical; }
   .archive-filters select { max-width: none; }
 }
 
+/* Verlauf */
+.log-list { list-style: none; margin: 0; padding: 0; }
+.log-list li {
+  display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 4px 16px;
+  padding: 10px 0; border-bottom: 1px solid var(--border); font-size: .92rem;
+}
+.log-list li:last-child { border-bottom: 0; }
+.log-what { overflow-wrap: anywhere; }
+.log-who { color: var(--muted); text-align: right; }
+@media (max-width: 640px) {
+  .log-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .log-list time { grid-column: 1 / -1; font-size: .82rem; }
+}
+
+/* Konten */
+.compact-details { margin-top: 10px; padding-top: 10px; }
+.compact-details summary { margin-bottom: 8px; font-size: .9rem; }
+
 /* Admin */
 .admin-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .admin-head h1 { margin: 0; }

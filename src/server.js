@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const path = require('path');
 const express = require('express');
 
@@ -8,6 +9,7 @@ const forms = require('./forms');
 const jobs = require('./jobs');
 const views = require('./views');
 const { createStorage, databaseHint } = require('./storage');
+const users = require('./users');
 const { sessionMiddleware, csrfToken, csrfValid, passwordMatches } = require('./session');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,18 +34,18 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
-// aktion -> was passiert, welche Meldung, bei welchem Status erlaubt
+// aktion -> was passiert, welche Meldung, bei welchem Status erlaubt, Eintrag im Verlauf
 const ACTIONS = {
-  approve: { run: jobs.enqueue, message: '„%s“ ist freigegeben und steht jetzt auf Platz %p der Warteschlange.', allowed: ['pending'] },
-  reject: { run: jobs.reject, message: '„%s“ wurde abgelehnt.', allowed: ['pending', 'queued'] },
-  done: { run: jobs.markDone, message: '„%s“ ist als gedruckt markiert. 🎉', allowed: ['queued'] },
-  restore: { run: jobs.enqueue, message: '„%s“ steht wieder in der Warteschlange (Platz %p).', allowed: ['done', 'rejected'] },
-  unapprove: { run: jobs.backToPending, message: '„%s“ wartet wieder auf Freigabe.', allowed: ['queued'] },
+  approve: { run: jobs.enqueue, message: '„%s“ ist freigegeben und steht jetzt auf Platz %p der Warteschlange.', allowed: ['pending'], log: 'freigegeben' },
+  reject: { run: jobs.reject, message: '„%s“ wurde abgelehnt.', allowed: ['pending', 'queued'], log: 'abgelehnt' },
+  done: { run: jobs.markDone, message: '„%s“ ist als gedruckt markiert. 🎉', allowed: ['queued'], log: 'gedruckt' },
+  restore: { run: jobs.enqueue, message: '„%s“ steht wieder in der Warteschlange (Platz %p).', allowed: ['done', 'rejected'], log: 'zurueckgeholt' },
+  unapprove: { run: jobs.backToPending, message: '„%s“ wartet wieder auf Freigabe.', allowed: ['queued'], log: 'freigabe_zurueck' },
   up: { run: (d, id) => jobs.move(d, id, 'up'), allowed: ['queued'] },
   down: { run: (d, id) => jobs.move(d, id, 'down'), allowed: ['queued'] },
   top: { run: (d, id) => jobs.move(d, id, 'top'), allowed: ['queued'] },
   bottom: { run: (d, id) => jobs.move(d, id, 'bottom'), allowed: ['queued'] },
-  delete: { run: jobs.remove, message: '„%s“ wurde gelöscht.', allowed: ['pending', 'queued', 'done', 'rejected'] },
+  delete: { run: jobs.remove, message: '„%s“ wurde gelöscht.', allowed: ['pending', 'queued', 'done', 'rejected'], log: 'geloescht' },
 };
 
 /**
@@ -84,7 +86,9 @@ function createApp(config, deps = {}) {
     res.page = (view, data = {}, status = 200) => {
       const flashes = req.session.flash || [];
       delete req.session.flash;
-      const ctx = { csrf: csrfToken(req), isAdmin: Boolean(req.session.admin), flashes, date, day };
+      const ctx = {
+        csrf: csrfToken(req), isAdmin: Boolean(req.user), user: users.publicUser(req.user), flashes, date, day,
+      };
       res.status(status).type('html').send(String(views[view](ctx, data)));
     };
     next();
@@ -116,16 +120,59 @@ function createApp(config, deps = {}) {
     next();
   });
 
-  const familyAccess = (req) => !config.familyPassword || req.session.family || req.session.admin;
+  // Angemeldetes Konto laden. Passt die Sitzungsversion nicht mehr (Passwort
+  // geändert, Konto gelöscht), ist die Sitzung ungültig.
+  app.use(async (req, res, next) => {
+    req.user = null;
+    const { uid, v } = req.session;
+    if (uid) {
+      const user = await store.getUser(uid);
+      if (user && user.sessionVersion === v) req.user = user;
+      else req.session = {};
+    }
+    next();
+  });
 
-  function requireFamily(req, res, next) {
-    if (!familyAccess(req)) return res.redirect(303, '/zugang');
+  function requireAdmin(req, res, next) {
+    if (!req.user) return res.redirect(303, '/admin/login');
     next();
   }
 
-  function requireAdmin(req, res, next) {
-    if (!req.session.admin) return res.redirect(303, '/admin/login');
-    next();
+  /** Eintrag im Verlauf – ein Fehler dabei darf die eigentliche Aktion nicht stören. */
+  async function log(req, action, { job = null, details = null, userName = null } = {}) {
+    try {
+      await store.addLog({
+        userId: req.user ? req.user.id : null,
+        userName: userName || (req.user ? req.user.displayName : null),
+        action,
+        jobId: job ? job.id : null,
+        jobTitle: job ? job.title : null,
+        details,
+      });
+    } catch (err) {
+      console.error('Verlauf konnte nicht gespeichert werden:', err.message);
+    }
+  }
+
+  function logIn(req, user) {
+    // Neue Sitzung, damit nichts aus der Zeit vor dem Login übrig bleibt.
+    req.session = { uid: user.id, v: user.sessionVersion, name: req.session.name, csrf: req.session.csrf };
+    req.user = user;
+  }
+
+  // Schutz vor Spam auf der öffentlichen Seite: Das Formular trägt einen
+  // signierten Zeitstempel; wer schneller abschickt, als ein Mensch tippen kann,
+  // muss es nochmal versuchen.
+  const stampSig = (time) => crypto.createHmac('sha256', config.secretKey).update(`formular:${time}`)
+    .digest('base64url').slice(0, 22);
+  function formStamp() {
+    const time = String(Date.now());
+    return `${time}.${stampSig(time)}`;
+  }
+  function formAge(stamp) {
+    const [time, sig] = String(stamp || '').split('.');
+    if (!time || !sig || sig !== stampSig(time)) return null;
+    return (Date.now() - Number(time)) / 1000;
   }
 
   async function syncDiscord(req, force = false) {
@@ -141,25 +188,36 @@ function createApp(config, deps = {}) {
     const data = await store.readData();
     res.page('index', {
       values: values || { requester: req.session.name || '', quantity: 1 },
+      stamp: formStamp(),
       queue: jobs.queue(data),
       done: jobs.finished(data, 10).filter((job) => job.status === 'done'),
       topN: config.discordTopN,
     }, status);
   }
 
-  app.get('/', requireFamily, (req, res) => renderIndex(req, res));
+  app.get('/', (req, res) => renderIndex(req, res));
 
-  app.post('/auftrag', requireFamily, async (req, res) => {
+  app.post('/auftrag', async (req, res) => {
     // Unsichtbares Feld: Bots füllen es aus, Menschen nicht.
     if (req.body.website) return res.redirect(303, '/');
 
     const { values, errors } = forms.parseJobForm(req.body);
+    if (config.minFormSeconds > 0) {
+      const age = formAge(req.body.ts);
+      if (age === null || age < config.minFormSeconds) {
+        errors.push('Das ging etwas schnell – bitte prüf kurz deine Angaben und schick sie nochmal ab.');
+      }
+    }
+    if (!errors.length && jobs.pending(await store.readData()).length >= config.maxPending) {
+      errors.push('Gerade warten schon sehr viele Anfragen auf Freigabe – bitte versuch es später nochmal.');
+    }
     if (errors.length) {
       errors.forEach((error) => req.flash('error', error));
       return renderIndex(req, res, values, 400);
     }
     await forms.completeFromMakerworld(values, config.fetchMakerworldInfo);
     const job = await store.updateData((data) => jobs.create(data, values));
+    await log(req, 'anfrage', { job, userName: `${values.requester} (öffentlich)` });
     req.session.name = values.requester;
     req.flash('success', `Danke! Deine Anfrage „${job.title}“ ist angekommen. Sobald sie freigegeben ist, `
       + 'erscheint sie hier in der Warteschlange.');
@@ -171,42 +229,155 @@ function createApp(config, deps = {}) {
     if (deps.onBackgroundTask) deps.onBackgroundTask(notified);
   });
 
-  app.get('/zugang', (req, res) => {
-    if (familyAccess(req)) return res.redirect(303, '/');
-    res.page('zugang');
-  });
+  // --- Anmelden, Ersteinrichtung, Konten ----------------------------------------------
 
-  app.post('/zugang', (req, res) => {
-    if (familyAccess(req)) return res.redirect(303, '/');
-    if (passwordMatches(req.body.password, config.familyPassword)) {
-      req.session.family = true;
-      return res.redirect(303, '/');
-    }
-    req.flash('error', 'Das Passwort stimmt nicht.');
-    res.page('zugang', {}, 401);
-  });
-
-  // --- Admin ----------------------------------------------------------------------
-
-  app.get('/admin/login', (req, res) => {
-    if (req.session.admin) return res.redirect(303, '/admin');
-    res.page('adminLogin', { configured: Boolean(config.adminPassword) });
+  app.get('/admin/login', async (req, res) => {
+    if (req.user) return res.redirect(303, '/admin');
+    if (!(await store.countUsers())) return res.redirect(303, '/admin/einrichten');
+    res.page('adminLogin', { username: '' });
   });
 
   app.post('/admin/login', async (req, res) => {
-    if (passwordMatches(req.body.password, config.adminPassword)) {
-      req.session.admin = true;
+    const username = users.normalizeUsername(req.body.username).slice(0, 40);
+    const user = username ? await store.findUser(username) : null;
+    if (user && users.isLocked(user)) {
+      req.flash('error', `Zu viele Fehlversuche – dieses Konto ist kurz gesperrt. Bitte in ${users.LOCK_MINUTES} Minuten nochmal.`);
+      return res.page('adminLogin', { username }, 429);
+    }
+    const ok = await users.verifyPassword(req.body.password, user ? user.passwordHash : users.DUMMY_HASH);
+    if (user && ok) {
+      const fresh = await store.updateUser(user.id, {
+        failedLogins: 0, lockedUntil: null, lastLoginAt: new Date().toISOString(),
+      });
+      logIn(req, fresh);
+      await log(req, 'login');
       return res.redirect(303, '/admin');
     }
-    await sleep(1000); // bremst Passwort-Raten aus
-    req.flash('error', 'Falsches Passwort.');
-    res.page('adminLogin', { configured: Boolean(config.adminPassword) }, 401);
+    if (user) {
+      const update = users.failedLoginUpdate(user);
+      await store.updateUser(user.id, update);
+      await log(req, update.lockedUntil ? 'gesperrt' : 'login_fehlgeschlagen', { userName: user.displayName });
+    }
+    await sleep(config.loginDelayMs); // bremst Passwort-Raten aus
+    req.flash('error', 'Benutzername oder Passwort stimmt nicht.');
+    res.page('adminLogin', { username }, 401);
   });
 
   app.post('/admin/logout', (req, res) => {
-    delete req.session.admin;
+    req.session = {};
     res.redirect(303, '/');
   });
+
+  // Ersteinrichtung: Solange es kein Konto gibt, legt man hier das erste an. Als
+  // Nachweis dient ADMIN_PASSWORD aus den Plesk-Einstellungen.
+  app.get('/admin/einrichten', async (req, res) => {
+    if (await store.countUsers()) return res.redirect(303, '/admin/login');
+    res.page('adminSetup', { setupEnabled: Boolean(config.adminPassword), values: {} });
+  });
+
+  app.post('/admin/einrichten', async (req, res) => {
+    if (await store.countUsers()) return res.redirect(303, '/admin/login');
+    const { values, errors } = users.parseUserForm(req.body);
+    if (!passwordMatches(req.body.setup_code, config.adminPassword)) {
+      await sleep(config.loginDelayMs);
+      errors.unshift('Der Einrichtungs-Code stimmt nicht – das ist dein ADMIN_PASSWORD aus den Plesk-Einstellungen.');
+    }
+    if (errors.length) {
+      errors.forEach((error) => req.flash('error', error));
+      return res.page('adminSetup', { setupEnabled: Boolean(config.adminPassword), values }, 400);
+    }
+    let user;
+    try {
+      user = await store.createUser({
+        username: values.username, displayName: values.displayName, passwordHash: await users.hashPassword(values.password),
+      }, { onlyIfNone: true });
+    } catch (err) {
+      if (err.code === 'NOT_FIRST') return res.redirect(303, '/admin/login');
+      throw err;
+    }
+    user = await store.updateUser(user.id, { lastLoginAt: new Date().toISOString() });
+    logIn(req, user);
+    await log(req, 'eingerichtet');
+    req.flash('success', `Willkommen, ${user.displayName}! Dein Konto ist angelegt. ADMIN_PASSWORD brauchst du `
+      + 'jetzt nicht mehr – du kannst es in Plesk löschen.');
+    res.redirect(303, '/admin');
+  });
+
+  async function renderUsers(req, res, extra = {}, status = 200) {
+    res.page('adminUsers', {
+      users: (await store.listUsers()).map(users.publicUser),
+      me: users.publicUser(req.user),
+      newValues: extra.newValues || {},
+      openNew: Boolean(extra.newValues),
+    }, status);
+  }
+
+  app.get('/admin/nutzer', requireAdmin, (req, res) => renderUsers(req, res));
+
+  app.post('/admin/nutzer/neu', requireAdmin, async (req, res) => {
+    const { values, errors } = users.parseUserForm(req.body);
+    if (!errors.length && await store.findUser(values.username)) errors.push('Diesen Benutzernamen gibt es schon.');
+    if (errors.length) {
+      errors.forEach((error) => req.flash('error', error));
+      return renderUsers(req, res, { newValues: values }, 400);
+    }
+    try {
+      const user = await store.createUser({
+        username: values.username, displayName: values.displayName, passwordHash: await users.hashPassword(values.password),
+      });
+      await log(req, 'nutzer_angelegt', { details: `${user.displayName} (${user.username})` });
+      req.flash('success', `Konto für ${user.displayName} angelegt. Anmelden mit „${user.username}“.`);
+    } catch (err) {
+      if (err.code !== 'USERNAME_TAKEN') throw err;
+      req.flash('error', 'Diesen Benutzernamen gibt es schon.');
+      return renderUsers(req, res, { newValues: values }, 400);
+    }
+    res.redirect(303, '/admin/nutzer');
+  });
+
+  app.post('/admin/nutzer/:id/passwort', requireAdmin, async (req, res, next) => {
+    const target = await store.getUser(Number(req.params.id));
+    if (!target) return next();
+    const self = target.id === req.user.id;
+    const { values, errors } = users.parseUserForm(req.body, { needUsername: false, needName: false });
+    if (self && !(await users.verifyPassword(req.body.current_password, req.user.passwordHash))) {
+      errors.unshift('Dein bisheriges Passwort stimmt nicht.');
+    }
+    if (errors.length) {
+      errors.forEach((error) => req.flash('error', error));
+      return renderUsers(req, res, {}, 400);
+    }
+    // Neue Sitzungsversion: Mit dem alten Passwort angemeldete Geräte fliegen raus.
+    const updated = await store.updateUser(target.id, {
+      passwordHash: await users.hashPassword(values.password),
+      sessionVersion: target.sessionVersion + 1,
+      failedLogins: 0,
+      lockedUntil: null,
+    });
+    if (self) logIn(req, updated);
+    await log(req, 'passwort_geaendert', { details: self ? 'eigenes Passwort' : updated.displayName });
+    req.flash('success', self ? 'Dein Passwort ist geändert.' : `Neues Passwort für ${updated.displayName} gespeichert.`);
+    res.redirect(303, '/admin/nutzer');
+  });
+
+  app.post('/admin/nutzer/:id/loeschen', requireAdmin, async (req, res, next) => {
+    const target = await store.getUser(Number(req.params.id));
+    if (!target) return next();
+    if (target.id === req.user.id) {
+      req.flash('error', 'Dein eigenes Konto kannst du nicht löschen.');
+    } else {
+      await store.deleteUser(target.id);
+      await log(req, 'nutzer_geloescht', { details: `${target.displayName} (${target.username})` });
+      req.flash('success', `Das Konto von ${target.displayName} ist gelöscht.`);
+    }
+    res.redirect(303, '/admin/nutzer');
+  });
+
+  app.get('/admin/verlauf', requireAdmin, async (req, res) => {
+    res.page('adminLog', { entries: await store.listLog(300) });
+  });
+
+  // --- Admin ----------------------------------------------------------------------
 
   async function renderDashboard(req, res, newValues, status = 200) {
     const data = await store.readData();
@@ -216,7 +387,7 @@ function createApp(config, deps = {}) {
       finished: jobs.finished(data),
       discord: await discord.status(store, config),
       topN: config.discordTopN,
-      newValues: newValues || { requester: req.session.name || '', quantity: 1 },
+      newValues: newValues || { requester: req.user.displayName, quantity: 1 },
       openNew: Boolean(newValues),
     }, status);
   }
@@ -235,6 +406,7 @@ function createApp(config, deps = {}) {
       jobs.enqueue(data, created.id);
       return created;
     });
+    await log(req, 'eigener_auftrag', { job });
     req.flash('success', `„${job.title}“ steht jetzt hinten in der Warteschlange.`);
     await syncDiscord(req);
     res.redirect(303, `/admin#auftrag-${job.id}`);
@@ -274,6 +446,7 @@ function createApp(config, deps = {}) {
       return true;
     });
     if (!updated) return next();
+    await log(req, 'bearbeitet', { job: { id, title: values.title } });
     req.flash('success', 'Änderungen gespeichert.');
     await syncDiscord(req);
     res.redirect(303, `${back}#auftrag-${id}`);
@@ -286,6 +459,7 @@ function createApp(config, deps = {}) {
       return job && job.status === 'done' ? jobs.duplicate(data, id) : null;
     });
     if (!copy) return next();
+    await log(req, 'nochmal', { job: copy });
     req.flash('success', `„${copy.title}“ steht als neuer Auftrag auf Platz ${copy.position} der Warteschlange.`);
     await syncDiscord(req);
     res.redirect(303, `${safeBack(req.body.back, '/admin/archiv')}#auftrag-${id}`);
@@ -304,6 +478,7 @@ function createApp(config, deps = {}) {
       const after = jobs.get(data, id);
       return { title, position: after ? after.position : null };
     });
+    if (spec.log && outcome.title) await log(req, spec.log, { job: { id, title: outcome.title } });
     if (outcome.missing) return next();
     if (outcome.invalid) {
       req.flash('error', 'Das geht bei diesem Auftrag gerade nicht.');
@@ -360,8 +535,8 @@ function createApp(config, deps = {}) {
       total: jobs.archive(data).length,
       people: jobs.archivePeople(data),
       back: query ? `/admin/archiv?${query}` : '/admin/archiv',
-      newValues: { requester: 'Ich', quantity: 1, printedAt: isoDay(), ...extra.newValues },
-      importValues: { requester: 'Ich', printedAt: isoDay(), ...extra.importValues },
+      newValues: { requester: req.user.displayName, quantity: 1, printedAt: isoDay(), ...extra.newValues },
+      importValues: { requester: req.user.displayName, printedAt: isoDay(), ...extra.importValues },
       openNew: Boolean(extra.newValues),
       openImport: Boolean(extra.importValues),
     }, status);
@@ -414,6 +589,7 @@ function createApp(config, deps = {}) {
     }
     await forms.completeFromMakerworld(values, config.fetchMakerworldInfo);
     const job = await store.updateData((data) => jobs.addPrinted(data, values, printedAt));
+    await log(req, 'eingetragen', { job });
     req.flash('success', `„${job.title}“ ist jetzt im Archiv.`);
     res.redirect(303, `/admin/archiv#auftrag-${job.id}`);
   });
@@ -435,6 +611,7 @@ function createApp(config, deps = {}) {
       { makerworldUrl: url, requester, quantity: 1, title: null, imageUrl: null }, config.fetchMakerworldInfo,
     ));
     await store.updateData((data) => entries.forEach((values) => jobs.addPrinted(data, values, printedAt)));
+    await log(req, 'importiert', { details: `${entries.length} ${entries.length === 1 ? 'Link' : 'Links'} für ${requester}` });
     req.flash('success', `${entries.length} ${entries.length === 1 ? 'Druck' : 'Drucke'} ins Archiv übernommen. `
       + 'Titel und Bilder kannst du bei Bedarf unter „Bearbeiten“ anpassen.');
     if (skipped.length) req.flash('error', `Übersprungen (kein gültiger Link): ${skipped.join(', ')}`);

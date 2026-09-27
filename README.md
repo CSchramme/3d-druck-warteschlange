@@ -12,7 +12,8 @@ neue Anfragen, Warteschlange, Archiv – liegen in einer **MariaDB/MySQL-Datenba
 
 ## So funktioniert's
 
-1. **Einreichen** – Auf der Startseite gibt jemand seinen Namen ein und
+1. **Einreichen** – Die Startseite ist für alle offen, ohne Anmeldung. Dort gibt
+   jemand seinen Namen ein und
    - fügt einen **MakerWorld-Link** ein (Titel darf dann leer bleiben), oder
    - beschreibt ohne Link, was gedruckt werden soll. Solche Aufträge sind überall
      mit **„kein Link“** markiert: Das Modell musst du selbst besorgen oder erstellen.
@@ -20,7 +21,8 @@ neue Anfragen, Warteschlange, Archiv – liegen in einer **MariaDB/MySQL-Datenba
    Dazu kommen Anzahl, Farbe/Material und Wünsche. Du bekommst sofort eine
    Discord-Nachricht „Neue Anfrage – wartet auf deine Freigabe“ mit Link.
    Öffentlich sichtbar wird die Anfrage erst, wenn du sie freigegeben hast.
-2. **Freigeben** – Unter `/admin` siehst du ganz oben alle offenen Anfragen und
+2. **Freigeben** – Im Admin-Bereich (Anmeldung mit Benutzername und Passwort)
+   siehst du ganz oben alle offenen Anfragen und
    kannst sie **freigeben**, **bearbeiten** (z. B. selbst einen Link nachtragen
    oder eine Notiz wie „PETG, 0,2 mm“ dazuschreiben) oder **ablehnen**.
 3. **Warteschlange** – Freigegebene Aufträge werden hinten angehängt. Mit
@@ -30,6 +32,11 @@ neue Anfragen, Warteschlange, Archiv – liegen in einer **MariaDB/MySQL-Datenba
    geändert haben (andere Aufträge, andere Reihenfolge oder geänderte Details).
    Nur dann kommt eine neue Nachricht. Rutscht z. B. ein neuer Auftrag auf
    Platz 5, bleibt Discord ruhig.
+5. **Konten** – Jeder, der im Admin-Bereich helfen soll, bekommt ein eigenes Konto
+   (Menü **Konten**). Passwörter werden nur verschlüsselt (als scrypt-Hash)
+   gespeichert; nach 5 falschen Versuchen ist ein Konto 5 Minuten gesperrt.
+6. **Verlauf** – Im Menü **Verlauf** steht, wer wann was gemacht hat: neue
+   Anfragen, Freigaben, Gedrucktes, Löschungen, Anmeldungen, Kontoänderungen.
 
 ## Druck-Archiv
 
@@ -108,8 +115,7 @@ Im selben Node.js-Fenster unter **Benutzerdefinierte Umgebungsvariablen**
 
 | Variable | Wert |
 | --- | --- |
-| `ADMIN_PASSWORD` | dein Passwort für `/admin` (**Pflicht**) |
-| `FAMILY_PASSWORD` | Passwort für die Familie (empfohlen, sonst kann jeder einreichen) |
+| `ADMIN_PASSWORD` | Einrichtungs-Code für dein erstes Konto (**Pflicht** beim ersten Start, danach nicht mehr nötig) |
 | `DISCORD_WEBHOOK_URL` | die Webhook-URL aus Schritt 1 |
 | `PUBLIC_URL` | z. B. `https://druck.deine-domain.de` (empfohlen: dann kommst du aus Discord mit einem Klick zur Freigabe) |
 | `COOKIE_SECURE` | `true`, sobald HTTPS aktiv ist |
@@ -125,9 +131,10 @@ Deine Benutzer-ID findest du so: Discord → Einstellungen → Erweitert →
 **Entwicklermodus** einschalten, dann Rechtsklick auf deinen Namen → **Benutzer-ID
 kopieren**.
 
-**Datenbank:** Die App legt beim ersten Start selbst zwei Tabellen an:
-`druck_auftraege` (alle Aufträge) und `druck_zustand` (interne Merker, z. B. was
-zuletzt an Discord ging). Andere Tabellen in der Datenbank werden nicht angefasst.
+**Datenbank:** Die App legt beim ersten Start selbst ihre Tabellen an:
+`druck_auftraege` (alle Aufträge), `druck_nutzer` (Konten), `druck_verlauf` (wer hat
+was gemacht) und `druck_zustand` (interne Merker, z. B. was zuletzt an Discord
+ging). Andere Tabellen in der Datenbank werden nicht angefasst.
 Hattest du vorher schon Aufträge in `data/auftraege.json`, werden sie beim ersten
 Start automatisch übernommen; die Datei heißt danach `auftraege.json.importiert`.
 In **phpMyAdmin** (Plesk → Datenbanken) kannst du alles ansehen.
@@ -136,11 +143,16 @@ Weitere, seltener gebrauchte Einstellungen stehen in `.env.example`. Statt in
 Plesk kannst du die Werte auch in eine Datei `.env` im Anwendungsstamm schreiben
 (Vorlage: `.env.example`).
 
-### 6. Starten
+### 6. Starten und erstes Konto anlegen
 
 **Node.js aktivieren** bzw. **App neu starten** klicken, dann die Domain im
-Browser öffnen. Unter `/admin` anmelden und unten bei „Discord“ auf **Jetzt an
-Discord senden** klicken – dann siehst du sofort, ob der Webhook funktioniert.
+Browser öffnen und oben auf **Anmelden** klicken. Solange es noch kein Konto gibt,
+kommst du zur **Ersteinrichtung**: Als Einrichtungs-Code gibst du dein
+`ADMIN_PASSWORD` ein, dazu Benutzername, Name und dein neues Passwort. Danach
+brauchst du `ADMIN_PASSWORD` nicht mehr und kannst es in Plesk löschen.
+
+Zum Test unten bei „Discord“ auf **Jetzt an Discord senden** klicken – dann siehst
+du sofort, ob der Webhook funktioniert.
 
 ### Updates
 
@@ -159,6 +171,13 @@ ADMIN_PASSWORD=… DISCORD_WEBHOOK_URL=… npm start   # läuft auf Port 3000 (o
 
 ## Hinweise
 
+- **Spam-Schutz:** Weil die Startseite offen ist, hat das Formular ein
+  unsichtbares Fangfeld für Bots, muss mindestens 2 Sekunden offen sein, bevor es
+  abgeschickt wird, und nimmt keine neuen Anfragen mehr an, wenn schon 50 auf
+  Freigabe warten (einstellbar mit `MIN_FORM_SECONDS` und `MAX_PENDING`).
+- **Passwort vergessen?** Jemand anderes mit Konto setzt dir unter **Konten** ein
+  neues. Bist du der Einzige: in phpMyAdmin alle Zeilen in `druck_nutzer` löschen –
+  dann kommt wieder die Ersteinrichtung (dafür muss `ADMIN_PASSWORD` gesetzt sein).
 - **„Datenbank nicht erreichbar“?** Die Seite nennt den Grund (falsches Passwort,
   Datenbank gibt es nicht, Server nicht erreichbar …). Steht dort, dass Benutzer
   oder Passwort nicht stimmen, obwohl sie richtig sind, probier `DB_HOST=127.0.0.1`

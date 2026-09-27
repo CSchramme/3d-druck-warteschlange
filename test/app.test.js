@@ -137,13 +137,16 @@ test('Viele gleichzeitige Einsendungen gehen nicht verloren', async () => {
 
 // --- Zugang -----------------------------------------------------------------------
 
-test('Admin-Bereich braucht das Passwort', async () => {
+test('Admin-Bereich braucht eine Anmeldung', async () => {
+  await env.createUser('admin', 'geheim123', 'Admin');
   const client = env.client();
   assert.equal((await client.get('/admin')).location, '/admin/login');
-  const wrong = await client.post('/admin/login', { password: 'falsch' });
+  const wrong = await client.post('/admin/login', { username: 'admin', password: 'falsch' });
   assert.equal(wrong.status, 401);
-  assert.match(wrong.text, /Falsches Passwort/);
-  const right = await client.post('/admin/login', { password: 'geheim' });
+  assert.match(wrong.text, /Benutzername oder Passwort stimmt nicht/);
+  const unknown = await client.post('/admin/login', { username: 'gibtsnicht', password: 'geheim123' });
+  assert.equal(unknown.status, 401);
+  const right = await client.post('/admin/login', { username: 'ADMIN ', password: 'geheim123' });
   assert.equal(right.status, 303);
   assert.equal((await client.get('/admin')).status, 200);
   await client.post('/admin/logout');
@@ -151,24 +154,24 @@ test('Admin-Bereich braucht das Passwort', async () => {
 });
 
 test('Manipuliertes Sitzungs-Cookie wird ignoriert', async () => {
+  const user = await env.createUser('admin', 'geheim123', 'Admin');
   const client = env.client();
   await client.csrf();
   const [name, value] = client.cookie.split('=');
   const [, signature] = value.split('.');
-  const forged = Buffer.from(JSON.stringify({ admin: true })).toString('base64url');
+  const forged = Buffer.from(JSON.stringify({ uid: user.id, v: user.sessionVersion })).toString('base64url');
   client.cookie = `${name}=${forged}.${signature}`;
   assert.equal((await client.get('/admin')).status, 303);
 });
 
-test('Familien-Passwort schützt die Startseite', async () => {
-  env.config.familyPassword = 'familie';
+test('Die Startseite ist ohne Anmeldung offen', async () => {
   const client = env.client();
-  assert.equal((await client.get('/')).location, '/zugang');
-  assert.equal((await client.submit({ title: 'x' })).location, '/zugang');
-  assert.equal((await env.data()).jobs.length, 0);
-  assert.equal((await client.post('/zugang', { password: 'falsch' })).status, 401);
-  await client.post('/zugang', { password: 'familie' });
-  assert.equal((await client.get('/')).status, 200);
+  const page = await client.get('/');
+  assert.equal(page.status, 200);
+  assert.match(page.text, /Druckauftrag einreichen/);
+  assert.equal((await client.submit({ title: 'Vase' })).status, 303);
+  assert.equal((await env.data()).jobs.length, 1);
+  assert.equal((await client.get('/zugang')).status, 404);
 });
 
 // --- Freigeben & Warteschlange -------------------------------------------------------

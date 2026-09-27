@@ -65,6 +65,17 @@ function createFileStore(dataDir) {
   }
 
   const emptyData = () => ({ nextId: 1, jobs: [] });
+  const emptyUsers = () => ({ nextId: 1, users: [] });
+  const MAX_LOG = 2000;
+
+  function changeUsers(fn) {
+    return withLock('nutzer', () => {
+      const data = read('nutzer', emptyUsers);
+      const result = fn(data);
+      write('nutzer', data);
+      return result;
+    });
+  }
 
   return {
     kind: 'datei',
@@ -85,6 +96,46 @@ function createFileStore(dataDir) {
     readState: async (name) => read(name, () => ({})),
     writeState: async (name, value) => write(name, value),
     withLock,
+
+    // --- Konten ---
+    countUsers: async () => read('nutzer', emptyUsers).users.length,
+    listUsers: async () => read('nutzer', emptyUsers).users,
+    getUser: async (id) => read('nutzer', emptyUsers).users.find((u) => u.id === id) || null,
+    findUser: async (username) => read('nutzer', emptyUsers).users.find((u) => u.username === username) || null,
+
+    /** Legt ein Konto an. onlyIfNone: nur, wenn es noch gar keins gibt (Ersteinrichtung). */
+    createUser: ({ username, displayName, passwordHash }, { onlyIfNone = false } = {}) => changeUsers((data) => {
+      if (onlyIfNone && data.users.length) throw Object.assign(new Error('Es gibt schon ein Konto.'), { code: 'NOT_FIRST' });
+      if (data.users.some((u) => u.username === username)) {
+        throw Object.assign(new Error('Benutzername vergeben.'), { code: 'USERNAME_TAKEN' });
+      }
+      const user = {
+        id: data.nextId++, username, displayName, passwordHash, sessionVersion: 1,
+        failedLogins: 0, lockedUntil: null, createdAt: new Date().toISOString(), lastLoginAt: null,
+      };
+      data.users.push(user);
+      return user;
+    }),
+
+    updateUser: (id, fields) => changeUsers((data) => {
+      const user = data.users.find((u) => u.id === id);
+      if (user) Object.assign(user, fields);
+      return user || null;
+    }),
+
+    deleteUser: (id) => changeUsers((data) => {
+      data.users = data.users.filter((u) => u.id !== id);
+    }),
+
+    // --- Verlauf ---
+    addLog: (entry) => withLock('verlauf', () => {
+      const log = read('verlauf', () => ({ nextId: 1, entries: [] }));
+      log.entries.push({ id: log.nextId++, createdAt: new Date().toISOString(), ...entry });
+      log.entries = log.entries.slice(-MAX_LOG);
+      write('verlauf', log);
+    }),
+    listLog: async (limit = 300) => read('verlauf', () => ({ entries: [] })).entries.slice(-limit).reverse(),
+
     async close() {},
   };
 }

@@ -13,7 +13,7 @@ const EXPORT_JS = fs.readFileSync(path.join(__dirname, 'export', 'archiv-export.
 // --- Bausteine ---------------------------------------------------------------
 
 function layout(ctx, { title, body }) {
-  const { isAdmin, csrf, flashes } = ctx;
+  const { isAdmin, csrf, flashes, user } = ctx;
   // Fehler bleiben stehen; Erfolgsmeldungen erscheinen als Einblendung, die
   // man auch sieht, wenn die Seite zu einem Auftrag weiter unten springt.
   const errors = flashes.filter((f) => f.type === 'error');
@@ -32,15 +32,18 @@ function layout(ctx, { title, body }) {
     <div class="wrap topbar-inner">
       <a class="brand" href="/">🖨️ Druck-Warteschlange</a>
       <nav>
-        <a href="/#einreichen">Einreichen</a>
-        <a href="/#warteschlange">Warteschlange</a>
-        <a href="/admin">Admin</a>
-        ${isAdmin ? html`<a href="/admin/archiv">Archiv</a>` : ''}
         ${isAdmin ? html`
+          <a href="/admin">Admin</a>
+          <a href="/admin/archiv">Archiv</a>
+          <a href="/admin/verlauf">Verlauf</a>
+          <a href="/admin/nutzer">Konten</a>
           <form method="post" action="/admin/logout" class="inline">
             <input type="hidden" name="csrf_token" value="${csrf}">
-            <button class="linklike" type="submit">Abmelden</button>
-          </form>` : ''}
+            <button class="linklike" type="submit" title="Angemeldet als ${user.displayName}">Abmelden</button>
+          </form>` : html`
+          <a href="/#einreichen">Einreichen</a>
+          <a href="/#warteschlange">Warteschlange</a>
+          <a href="/admin">Anmelden</a>`}
       </nav>
     </div>
   </header>
@@ -149,7 +152,7 @@ function thumb(job) {
 
 // --- Öffentliche Seiten ---------------------------------------------------------
 
-function index(ctx, { values, queue, done, topN }) {
+function index(ctx, { values, stamp, queue, done, topN }) {
   const body = html`
 <div class="columns">
   <section class="card" id="einreichen">
@@ -158,6 +161,7 @@ function index(ctx, { values, queue, done, topN }) {
       Jede Anfrage wird erst geprüft und freigegeben – danach taucht sie in der Warteschlange auf.</p>
     <form method="post" action="/auftrag" class="form">
       <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+      <input type="hidden" name="ts" value="${stamp}">
       <div class="hp" aria-hidden="true">
         <label>Website <input name="website" tabindex="-1" autocomplete="off"></label>
       </div>
@@ -194,43 +198,185 @@ function index(ctx, { values, queue, done, topN }) {
   return layout(ctx, { body });
 }
 
-function zugang(ctx) {
-  const body = html`
-<section class="card narrow-card">
-  <h1>Hallo! 👋</h1>
-  <p class="lead">Diese Seite ist nur für die Familie. Bitte gib das Familien-Passwort ein –
-    danach bleibst du auf diesem Gerät angemeldet.</p>
-  <form method="post" action="/zugang" class="form">
-    <input type="hidden" name="csrf_token" value="${ctx.csrf}">
-    <label class="field">
-      <span>Familien-Passwort</span>
-      <input name="password" type="password" required autofocus autocomplete="current-password">
-    </label>
-    <button class="btn btn-primary btn-block" type="submit">Weiter</button>
-  </form>
-</section>`;
-  return layout(ctx, { title: 'Zugang', body });
-}
-
 // --- Admin -------------------------------------------------------------------
 
-function adminLogin(ctx, { configured }) {
+function passwordFields({ current = false, autocomplete = 'new-password' } = {}) {
+  return html`
+    ${current ? html`
+    <label class="field">
+      <span>Bisheriges Passwort <em>*</em></span>
+      <input name="current_password" type="password" required autocomplete="current-password">
+    </label>` : ''}
+    <div class="row row-even">
+      <label class="field">
+        <span>${current ? 'Neues Passwort' : 'Passwort'} <em>*</em> <small>(mind. 8 Zeichen)</small></span>
+        <input name="password" type="password" required minlength="8" maxlength="200" autocomplete="${autocomplete}">
+      </label>
+      <label class="field">
+        <span>Nochmal <em>*</em></span>
+        <input name="password_repeat" type="password" required minlength="8" maxlength="200" autocomplete="${autocomplete}">
+      </label>
+    </div>`;
+}
+
+function accountFields(values) {
+  return html`
+    <div class="row row-even">
+      <label class="field">
+        <span>Benutzername <em>*</em> <small>(zum Anmelden)</small></span>
+        <input name="username" required minlength="3" maxlength="40"
+               autocapitalize="off" spellcheck="false" autocomplete="off" value="${values.username}" placeholder="z. B. tim">
+      </label>
+      <label class="field">
+        <span>Name <small>(wird angezeigt)</small></span>
+        <input name="display_name" maxlength="60" value="${values.displayName}" placeholder="z. B. Tim">
+      </label>
+    </div>`;
+}
+
+function adminLogin(ctx, { username }) {
   const body = html`
 <section class="card narrow-card">
-  <h1>Admin-Login</h1>
-  ${configured ? html`
+  <h1>Anmelden</h1>
   <form method="post" action="/admin/login" class="form">
     <input type="hidden" name="csrf_token" value="${ctx.csrf}">
     <label class="field">
+      <span>Benutzername</span>
+      <input name="username" required autocapitalize="off" spellcheck="false" autocomplete="username"
+             value="${username}"${username ? '' : html` autofocus`}>
+    </label>
+    <label class="field">
       <span>Passwort</span>
-      <input name="password" type="password" required autofocus autocomplete="current-password">
+      <input name="password" type="password" required autocomplete="current-password"${username ? html` autofocus` : ''}>
     </label>
     <button class="btn btn-primary btn-block" type="submit">Anmelden</button>
-  </form>` : html`
-  <p class="flash flash-error">Es ist kein <code>ADMIN_PASSWORD</code> gesetzt. Trag eins in Plesk bei den
-    Umgebungsvariablen (oder in die <code>.env</code>-Datei) ein und starte die App neu.</p>`}
+  </form>
 </section>`;
-  return layout(ctx, { title: 'Admin-Login', body });
+  return layout(ctx, { title: 'Anmelden', body });
+}
+
+function adminSetup(ctx, { setupEnabled, values }) {
+  const body = html`
+<section class="card narrow-card wide">
+  <h1>Willkommen! 👋</h1>
+  <p class="lead">Leg dein Konto für den Admin-Bereich an. Weitere Konten, z. B. für jemanden, der dir hilft,
+    kannst du danach unter <strong>Konten</strong> anlegen.</p>
+  ${setupEnabled ? html`
+  <form method="post" action="/admin/einrichten" class="form">
+    <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+    <label class="field">
+      <span>Einrichtungs-Code <em>*</em> <small>(dein <code>ADMIN_PASSWORD</code> aus den Plesk-Einstellungen)</small></span>
+      <input name="setup_code" type="password" required autocomplete="off">
+    </label>
+    ${accountFields(values)}
+    ${passwordFields()}
+    <button class="btn btn-primary btn-block" type="submit">Konto anlegen</button>
+  </form>` : html`
+  <p class="flash flash-error">Zum Einrichten brauchst du einen Einrichtungs-Code: Trag in Plesk bei den
+    Umgebungsvariablen <code>ADMIN_PASSWORD</code> ein, starte die App neu und lade diese Seite nochmal.</p>`}
+</section>`;
+  return layout(ctx, { title: 'Einrichten', body });
+}
+
+function adminUsers(ctx, { users, me, newValues, openNew }) {
+  const body = html`
+<div class="admin-head">
+  <h1>👤 Konten</h1>
+  <span class="muted small">Angemeldet als <strong>${me.displayName}</strong> (${me.username})</span>
+</div>
+
+<section class="card">
+  <h2>Alle Konten <span class="count">${users.length}</span></h2>
+  <p class="muted small">Jedes Konto darf alles im Admin-Bereich: freigeben, drucken, Archiv, Konten verwalten.
+    Die Seite zum Einreichen ist für alle offen – dafür braucht niemand ein Konto.</p>
+  <ul class="joblist">
+    ${users.map((user) => html`
+      <li class="job" id="nutzer-${user.id}">
+        <div class="thumb thumb-empty" aria-hidden="true">👤</div>
+        <div class="job-body">
+          <div class="job-title">${user.displayName} <span class="muted small">${user.username}</span>
+            ${user.id === me.id ? html`<span class="badge badge-link">du</span>` : ''}</div>
+          <div class="meta">
+            <span class="muted">angelegt ${ctx.day(user.createdAt)}</span>
+            <span class="muted">${user.lastLoginAt ? `zuletzt angemeldet ${ctx.date(user.lastLoginAt)}` : 'noch nie angemeldet'}</span>
+          </div>
+          <details class="add-own compact-details">
+            <summary>${user.id === me.id ? '🔒 Mein Passwort ändern' : '🔒 Neues Passwort setzen'}</summary>
+            <form method="post" action="/admin/nutzer/${user.id}/passwort" class="form">
+              <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+              ${passwordFields({ current: user.id === me.id })}
+              <button class="btn btn-primary btn-small" type="submit">Passwort speichern</button>
+            </form>
+          </details>
+          ${user.id === me.id ? '' : html`
+          <div class="actions">
+            <form method="post" action="/admin/nutzer/${user.id}/loeschen" class="inline"
+                  data-confirm="${`Das Konto von ${user.displayName} wirklich löschen?`}">
+              <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+              <button class="btn btn-small btn-danger-soft" type="submit">Konto löschen</button>
+            </form>
+          </div>`}
+        </div>
+      </li>`)}
+  </ul>
+</section>
+
+<section class="card">
+  <details class="add-own"${openNew ? html` open` : ''}>
+    <summary>➕ Neues Konto anlegen</summary>
+    <form method="post" action="/admin/nutzer/neu" class="form">
+      <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+      ${accountFields(newValues)}
+      ${passwordFields()}
+      <button class="btn btn-primary" type="submit">Konto anlegen</button>
+    </form>
+  </details>
+</section>`;
+  return layout(ctx, { title: 'Konten', body });
+}
+
+const LOG_LABELS = {
+  anfrage: '🆕 Neue Anfrage',
+  freigegeben: '✅ Freigegeben',
+  abgelehnt: '✖️ Abgelehnt',
+  gedruckt: '🖨️ Gedruckt',
+  zurueckgeholt: '↩️ Zurück in die Warteschlange',
+  freigabe_zurueck: '↩️ Freigabe zurückgenommen',
+  geloescht: '🗑️ Gelöscht',
+  bearbeitet: '✏️ Bearbeitet',
+  nochmal: '🔁 Nochmal drucken',
+  eigener_auftrag: '➕ Eigener Auftrag',
+  eingetragen: '📚 Ins Archiv eingetragen',
+  importiert: '📋 Links ins Archiv übernommen',
+  login: '🔑 Angemeldet',
+  login_fehlgeschlagen: '⚠️ Falsches Passwort',
+  gesperrt: '⛔ Zu viele Fehlversuche – kurz gesperrt',
+  eingerichtet: '🎉 Ersteinrichtung',
+  nutzer_angelegt: '👤 Konto angelegt',
+  nutzer_geloescht: '👤 Konto gelöscht',
+  passwort_geaendert: '🔒 Passwort geändert',
+};
+
+function adminLog(ctx, { entries }) {
+  const body = html`
+<div class="admin-head">
+  <h1>🕘 Verlauf</h1>
+  <span class="muted small">die letzten ${entries.length} Einträge</span>
+</div>
+<section class="card">
+  ${entries.length ? html`
+  <ul class="log-list">
+    ${entries.map((entry) => html`
+      <li>
+        <time class="muted">${ctx.date(entry.createdAt)}</time>
+        <span class="log-what">${LOG_LABELS[entry.action] || entry.action}${
+          entry.jobTitle ? html` <strong>${entry.jobTitle}</strong>` : ''}${
+          entry.details ? html` <span class="muted">· ${entry.details}</span>` : ''}</span>
+        <span class="log-who">${entry.userName || '–'}</span>
+      </li>`)}
+  </ul>` : html`<p class="empty">Noch nichts passiert.</p>`}
+</section>`;
+  return layout(ctx, { title: 'Verlauf', body });
 }
 
 function action(ctx, job, name, label, { cls = 'btn', confirm = null, title = null, back = null } = {}) {
@@ -578,5 +724,6 @@ function errorPage(ctx, { status, message }) {
 }
 
 module.exports = {
-  index, zugang, adminLogin, adminDashboard, adminEdit, adminArchive, archiveExport, errorPage,
+  index, adminLogin, adminSetup, adminUsers, adminLog, adminDashboard, adminEdit, adminArchive, archiveExport,
+  errorPage,
 };

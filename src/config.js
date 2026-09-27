@@ -69,7 +69,9 @@ function loadConfig(overrides = {}) {
   const config = {
     dataDir: path.resolve(ROOT, env.DATA_DIR || 'data'),
     adminPassword: env.ADMIN_PASSWORD || '',
-    familyPassword: env.FAMILY_PASSWORD || '',
+    minFormSeconds: Number.isFinite(parseFloat(env.MIN_FORM_SECONDS)) ? parseFloat(env.MIN_FORM_SECONDS) : 2,
+    maxPending: parseInt(env.MAX_PENDING, 10) || 50,
+    loginDelayMs: 1000,
     discordWebhookUrl: (env.DISCORD_WEBHOOK_URL || '').trim(),
     discordRequestsWebhookUrl: (env.DISCORD_WEBHOOK_URL_ANFRAGEN || '').trim(),
     discordPingUserId: (env.DISCORD_PING_USER_ID || '').trim(),
