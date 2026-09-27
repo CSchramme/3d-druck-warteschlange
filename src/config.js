@@ -30,7 +30,8 @@ function loadEnvFile(file) {
     return;
   }
   for (const [name, value] of Object.entries(parseEnvText(text))) {
-    if (process.env[name] === undefined) process.env[name] = value;
+    // Plesk hat Vorrang – ein dort leer gelassenes Feld aber nicht.
+    if (process.env[name] === undefined || process.env[name].trim() === '') process.env[name] = value;
   }
 }
 
@@ -108,4 +109,4 @@ function loadConfig(overrides = {}) {
   return config;
 }
 
-module.exports = { loadConfig, parseEnvText };
+module.exports = { loadConfig, loadEnvFile, parseEnvText };

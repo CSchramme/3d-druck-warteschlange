@@ -99,3 +99,23 @@ test('html`` maskiert eingesetzte Werte', () => {
   assert.equal(String(html`<ul>${['a', 'b'].map((x) => html`<li>${x}</li>`)}</ul>`), '<ul><li>a</li><li>b</li></ul>');
   assert.equal(String(html`${null}${undefined}${false}`), '');
 });
+
+test('.env: Plesk-Variablen haben Vorrang – leer gelassene aber nicht', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { loadEnvFile } = require('../src/config');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'druck-env-')), '.env');
+  fs.writeFileSync(file, 'TEST_AUS_PLESK=datei\nTEST_LEER_IN_PLESK=datei\nTEST_NUR_DATEI=datei\n');
+  process.env.TEST_AUS_PLESK = 'plesk';
+  process.env.TEST_LEER_IN_PLESK = ' ';
+  try {
+    loadEnvFile(file);
+    assert.equal(process.env.TEST_AUS_PLESK, 'plesk');
+    assert.equal(process.env.TEST_LEER_IN_PLESK, 'datei');
+    assert.equal(process.env.TEST_NUR_DATEI, 'datei');
+  } finally {
+    for (const name of ['TEST_AUS_PLESK', 'TEST_LEER_IN_PLESK', 'TEST_NUR_DATEI']) delete process.env[name];
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
+  }
+});
