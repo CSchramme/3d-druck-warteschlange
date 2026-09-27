@@ -7,6 +7,7 @@ const express = require('express');
 const discord = require('./discord');
 const forms = require('./forms');
 const jobs = require('./jobs');
+const pwa = require('./pwa');
 const views = require('./views');
 const { createStorage, databaseHint } = require('./storage');
 const users = require('./users');
@@ -75,6 +76,21 @@ function createApp(config, deps = {}) {
   const isoDay = (iso) => isoDayFormat.format(iso ? new Date(iso) : new Date());
 
   app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
+
+  // Installierbare App: Service Worker und Offline-Seite – gehen auch, wenn die
+  // Datenbank gerade nicht erreichbar ist.
+  const version = pwa.assetVersion();
+  const serviceWorker = pwa.serviceWorker(version);
+  const offlineHtml = String(views.offlinePage());
+  app.get('/sw.js', (req, res) => {
+    res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache' });
+    res.send(serviceWorker);
+  });
+  app.get(pwa.OFFLINE_URL, (req, res) => {
+    res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+    res.send(offlineHtml);
+  });
+
   app.use(sessionMiddleware({ secret: config.secretKey, secure: config.cookieSecure }));
 
   // Hilfen für Meldungen und Seiten – vor dem Formular-Parser, damit auch

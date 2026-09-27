@@ -40,12 +40,24 @@ neue Anfragen, Warteschlange, Archiv – liegen in einer **MariaDB/MySQL-Datenba
 
 ## Als App aufs Handy
 
-Die Seite ist fürs Handy gebaut (Tab-Leiste unten, große Knöpfe, hell und dunkel)
-und lässt sich wie eine App auf den Home-Bildschirm legen:
+Die Seite ist eine richtige Web-App (PWA): mit eigenem Logo, eigenem Symbol auf
+dem Home-Bildschirm, ohne Browser-Leiste und mit einer Offline-Seite, wenn mal
+kein Internet da ist. Am Handy erscheint unten von selbst ein Hinweis
+**„Als App aufs Handy“**:
 
-- **iPhone:** Seite in Safari öffnen → Teilen → **Zum Home-Bildschirm**.
-- **Android:** Seite in Chrome öffnen → Menü (⋮) → **App installieren** bzw.
-  **Zum Startbildschirm hinzufügen**.
+- **Android (Chrome):** auf **Installieren** tippen – fertig. Ohne Hinweis geht's
+  auch über Menü (⋮) → **App installieren**. Langes Drücken aufs App-Symbol
+  zeigt Abkürzungen zu *Einreichen*, *Warteschlange* und *Aufträge*.
+- **iPhone/iPad (Safari):** auf **Teilen** tippen (bei neuem iOS evtl. erst auf
+  „…“) → **Zum Home-Bildschirm**.
+
+Gut zu wissen:
+
+- Die App braucht **HTTPS** (in Plesk: SSL/TLS-Zertifikat, z. B. Let's Encrypt).
+- Die App zeigt immer den aktuellen Stand vom Server – gespeichert werden auf dem
+  Handy nur Aussehen, Skripte und Logo, keine Aufträge oder Namen.
+- Nach `run aktualisieren` holt sich die App die neuen Dateien von selbst.
+- Wer den Hinweis wegklickt, sieht ihn 30 Tage lang nicht mehr.
 
 ## Druck-Archiv
 

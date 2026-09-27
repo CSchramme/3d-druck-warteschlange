@@ -5,7 +5,9 @@ const path = require('path');
 
 const { html, raw } = require('./html');
 const { icon } = require('./icons');
+const { logoSvg } = require('./logo');
 const { isMakerworld } = require('./makerworld');
+const { assetUrl } = require('./pwa');
 
 // Für den HTML-Export: Aussehen und Suche werden direkt in die Datei gepackt.
 const EXPORT_CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
@@ -46,7 +48,27 @@ function navItems(ctx, cls) {
 
 const FLASH_ICONS = { error: 'alert-circle', success: 'check-circle', info: 'info' };
 
-function layout(ctx, { title, body, scripts = '' }) {
+const logo = (size) => raw(logoSvg(size, { decorative: true }));
+
+// Hinweis „Als App installieren“ – public/app.js blendet ihn ein, wenn es passt.
+function installBanner() {
+  return html`<aside class="install" id="install" hidden aria-label="App installieren">
+    <span class="install-logo">${logo(44)}</span>
+    <div class="install-text">
+      <strong>Als App aufs Handy</strong>
+      <span class="install-hint install-hint-prompt">Startet dann wie eine richtige App – ohne Browser drumherum.</span>
+      <span class="install-hint install-hint-ios">In Safari auf ${icon('share', { size: 15 })}
+        <b>Teilen</b> tippen (evtl. erst auf „…“), dann <b>„Zum Home-Bildschirm“</b>.</span>
+    </div>
+    <button class="icon-btn install-close" type="button" data-dismiss aria-label="Hinweis ausblenden" title="Ausblenden">${
+      icon('x', { size: 18 })}</button>
+    <button class="btn btn-primary install-btn" type="button" data-install>${
+      icon('download', { size: 18 })}<span>Installieren</span></button>
+  </aside>`;
+}
+
+/** bare: ohne Menü und Installations-Hinweis (Offline-Seite). */
+function layout(ctx, { title, body, scripts = '', bare = false }) {
   const { isAdmin, csrf, flashes, user } = ctx;
   // Fehler bleiben stehen; Erfolgsmeldungen erscheinen als Einblendung, die
   // man auch sieht, wenn die Seite zu einem Auftrag weiter unten springt.
@@ -57,26 +79,32 @@ function layout(ctx, { title, body, scripts = '' }) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f2f4f5" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0e1012" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#171a1d" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Druckaufträge einreichen und die Warteschlange im Blick behalten.">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="3D-Druck">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="application-name" content="3D-Druck">
   <title>${title ? `${title} – ` : ''}3D-Druck-Warteschlange</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="${assetUrl('/style.css')}">
   <script>${raw(IMAGE_FALLBACK)}</script>
+  <script src="${assetUrl('/app.js')}" defer></script>
 </head>
 <body>
   <header class="appbar">
     <div class="wrap appbar-inner">
       <a class="brand" href="${isAdmin ? '/admin' : '/'}">
-        <span class="brand-mark">${icon('printer', { size: 18 })}</span>
+        <span class="brand-mark">${logo(34)}</span>
         <span class="brand-text">3D-Druck</span>
       </a>
-      <nav class="topnav" aria-label="Hauptmenü">${navItems(ctx, 'topnav-item')}</nav>
+      ${bare ? '' : html`<nav class="topnav" aria-label="Hauptmenü">${navItems(ctx, 'topnav-item')}</nav>`}
       ${isAdmin ? html`
       <form method="post" action="/admin/logout" class="appbar-action">
         <input type="hidden" name="csrf_token" value="${csrf}">
@@ -97,18 +125,9 @@ function layout(ctx, { title, body, scripts = '' }) {
     ${body}
   </main>
 
-  <nav class="tabbar" aria-label="Hauptmenü">${navItems(ctx, 'tab')}</nav>
-
-  <script>
-    document.addEventListener('click', function (e) {
-      var toast = e.target.closest && e.target.closest('.toast');
-      if (toast) toast.remove();
-    });
-    document.addEventListener('submit', function (e) {
-      var message = e.target.getAttribute('data-confirm');
-      if (message && !window.confirm(message)) e.preventDefault();
-    });
-  </script>
+  ${bare ? '' : html`
+  ${installBanner()}
+  <nav class="tabbar" aria-label="Hauptmenü">${navItems(ctx, 'tab')}</nav>`}
   ${scripts}
 </body>
 </html>`;
@@ -279,7 +298,7 @@ function index(ctx, { values, stamp, queue, done, topN }) {
   const body = html`
 <div class="columns">
   <section class="card card-hero" id="einreichen">
-    <div class="hero-icon">${icon('printer', { size: 26 })}</div>
+    <div class="hero-icon">${logo(52)}</div>
     <h1>Druckauftrag einreichen</h1>
     <p class="lead">Füg einen <strong>MakerWorld-Link</strong> ein oder beschreib, was du gedruckt haben möchtest.
       Jede Anfrage wird erst geprüft und freigegeben – danach taucht sie in der Warteschlange auf.</p>
@@ -360,10 +379,11 @@ function accountFields(values) {
     </div>`;
 }
 
-function authCard(title, sub, content) {
+function authCard(title, sub, content, { iconName = null } = {}) {
   return html`
 <section class="card auth-card">
-  <div class="auth-mark">${icon('printer', { size: 28 })}</div>
+  ${iconName ? html`<div class="auth-mark auth-mark-icon">${icon(iconName, { size: 28 })}</div>`
+    : html`<div class="auth-mark">${logo(56)}</div>`}
   <h1>${title}</h1>
   ${sub ? html`<p class="lead">${sub}</p>` : ''}
   ${content}
@@ -782,7 +802,7 @@ ${pageHead('Druck-Archiv', {
     : empty('archive', html`Noch keine Drucke im Archiv. Sobald du in der Warteschlange auf <strong>Gedruckt</strong>
       tippst, landet der Auftrag hier. Eigene oder ältere Drucke trägst du oben mit <strong>Druck eintragen</strong> ein.`)}
 </section>`;
-  return layout(ctx, { title: 'Druck-Archiv', body, scripts: html`<script src="/archiv.js" defer></script>` });
+  return layout(ctx, { title: 'Druck-Archiv', body, scripts: html`<script src="${assetUrl('/archiv.js')}" defer></script>` });
 }
 
 /** Eigenständige HTML-Datei mit allen Drucken – mit Suche, Filter und Sortierung, auch offline. */
@@ -849,7 +869,25 @@ function errorPage(ctx, { status, message }) {
   return layout(ctx, { title: 'Fehler', body });
 }
 
+/** Erscheint in der App, wenn es gerade kein Internet gibt (liefert der Service Worker aus). */
+function offlinePage() {
+  const ctx = { isAdmin: false, csrf: '', flashes: [], user: null, path: '' };
+  const body = authCard('Keine Verbindung', 'Gerade gibt es kein Internet. Sobald die Verbindung wieder da ist, '
+    + 'lädt die Seite von selbst neu.', html`
+  <button class="btn btn-primary btn-block" type="button" id="nochmal">${icon('refresh', { size: 18 })}<span>Nochmal versuchen</span></button>`,
+  { iconName: 'wifi-off' });
+  return layout(ctx, {
+    title: 'Offline',
+    body,
+    bare: true,
+    scripts: html`<script>
+    document.getElementById('nochmal').addEventListener('click', function () { location.reload(); });
+    window.addEventListener('online', function () { location.reload(); });
+  </script>`,
+  });
+}
+
 module.exports = {
   index, publicQueue, adminLogin, adminSetup, adminUsers, adminLog, adminDashboard, adminEdit, adminArchive,
-  archiveExport, errorPage,
+  archiveExport, errorPage, offlinePage,
 };

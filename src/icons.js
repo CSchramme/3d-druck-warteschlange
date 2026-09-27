@@ -61,6 +61,10 @@ const PATHS = {
   table: '<path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>',
   'list-plus': '<path d="M11 12H3"/><path d="M16 6H3"/><path d="M16 18H3"/><path d="M18 9v6"/><path d="M21 12h-6"/>',
   more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  share: '<path d="M12 2v13"/><path d="m16 6-4-4-4 4"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>',
+  smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+  'wifi-off': '<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
 };
 
 /** Ein Icon als <svg>. size in px; label macht es für Screenreader sichtbar. */
@@ -73,13 +77,4 @@ function icon(name, { size = 20, label = null, className = '' } = {}) {
     + `${paths}</svg>`);
 }
 
-/** Das App-Symbol (grünes Quadrat mit Drucker) als SVG-Text – für Favicon und Home-Bildschirm.
- *  rounded: false für den Home-Bildschirm (das Handy rundet selbst ab). */
-function appIconSvg(size = 64, { rounded = true } = {}) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64">`
-    + `<rect width="64" height="64" rx="${rounded ? 14 : 0}" fill="#00AE42"/>`
-    + '<g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-    + `${PATHS.printer}</g></svg>`;
-}
-
-module.exports = { icon, appIconSvg, ICON_NAMES: Object.keys(PATHS) };
+module.exports = { icon, ICON_NAMES: Object.keys(PATHS) };
