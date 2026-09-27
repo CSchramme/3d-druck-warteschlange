@@ -60,6 +60,24 @@ Gut zu wissen:
 - Nach `run aktualisieren` holt sich die App die neuen Dateien von selbst.
 - Wer den Hinweis wegklickt, sieht ihn 30 Tage lang nicht mehr.
 
+## AGB, Datenschutz & Cookies
+
+Beim ersten Besuch sieht jeder – auch Admins – einen kurzen Dialog: **Cookies &
+AGB akzeptieren**. Erst danach lässt sich die Seite benutzen und ein Auftrag
+abschicken. Unten auf jeder Seite stehen die Links **AGB** und **Datenschutz &
+Cookies**.
+
+- Die Seite setzt nur ein technisch notwendiges Cookie (Formularschutz,
+  Anmeldung, die Zustimmung selbst) – kein Tracking.
+- Texte ändern: **Konten** → **AGB & Datenschutz** → **Texte bearbeiten**. Mit
+  dem Haken **„Alle müssen neu zustimmen“** sieht jeder beim nächsten Besuch den
+  Dialog wieder; ohne Haken (z. B. bei Tippfehlern) gelten die bisherigen
+  Zustimmungen weiter.
+- **Wichtig:** Ganz unten im Datenschutz-Hinweis deinen Namen und eine
+  Kontaktmöglichkeit eintragen – bis dahin erinnert dich der Admin-Bereich daran.
+- Die mitgelieferten Texte sind eine Vorlage für ein privates Familien-Angebot,
+  keine Rechtsberatung.
+
 ## Druck-Archiv
 
 Unter **Archiv** (oben im Menü, sobald du als Admin angemeldet bist) findest du

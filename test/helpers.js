@@ -71,7 +71,15 @@ class Client {
     return this.request('POST', url, { csrf_token: await this.csrf(), ...form });
   }
 
-  submit(fields = {}) {
+  /** Den AGB und dem Cookie-Hinweis zustimmen (wie der Knopf im Dialog). */
+  async accept() {
+    await this.post('/zustimmung', { back: '/' });
+    this.accepted = true;
+    return this;
+  }
+
+  async submit(fields = {}) {
+    if (!this.accepted) await this.accept();
     return this.post('/auftrag', { requester: 'Oma', quantity: '1', ...fields });
   }
 

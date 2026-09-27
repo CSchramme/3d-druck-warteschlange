@@ -6,6 +6,7 @@ const path = require('path');
 const { html, raw } = require('./html');
 const { icon } = require('./icons');
 const { logoSvg } = require('./logo');
+const legal = require('./legal');
 const { isMakerworld } = require('./makerworld');
 const { assetUrl } = require('./pwa');
 
@@ -67,9 +68,64 @@ function installBanner() {
   </aside>`;
 }
 
+const withBack = (href, back) => (back && back !== '/' ? `${href}?zurueck=${encodeURIComponent(back)}` : href);
+
+/** Formular „Zustimmen“ – im Dialog und unten auf den Seiten AGB/Datenschutz. */
+function consentForm(ctx, back, label = 'Cookies & AGB akzeptieren') {
+  return html`<form method="post" action="/zustimmung" class="consent-form">
+    <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+    <input type="hidden" name="back" value="${back}">
+    <button class="btn btn-primary btn-block btn-lg" type="submit">${icon('check', { size: 20 })}<span>${label}</span></button>
+  </form>`;
+}
+
+// Erscheint für alle, die der aktuellen Version noch nicht zugestimmt haben.
+function consentDialog(ctx) {
+  const back = ctx.url || '/';
+  return html`
+  <div class="consent-backdrop"></div>
+  <section class="consent" role="dialog" aria-modal="true" aria-labelledby="consent-title">
+    <div class="consent-head">
+      <span class="consent-logo">${logo(44)}</span>
+      <div>
+        <h2 id="consent-title">${ctx.consent.renewed ? 'Es gibt Neuigkeiten' : 'Kurz zustimmen, dann geht’s los'}</h2>
+        <p>${ctx.consent.renewed ? 'Die AGB bzw. der Datenschutz-Hinweis wurden geändert – bitte stimm einmal neu zu.'
+    : 'Bevor du die Druck-Warteschlange nutzt, brauchen wir kurz dein Okay.'}</p>
+      </div>
+    </div>
+    <div class="consent-item">
+      <span class="consent-icon">${icon('cookie', { size: 22 })}</span>
+      <div>
+        <strong>Cookies</strong>
+        <p>Nur ein technisch notwendiges Cookie – für den Schutz der Formulare und die Anmeldung. Kein Tracking, keine Werbung.</p>
+        <a href="${withBack('/datenschutz', back)}">Datenschutz &amp; Cookies${icon('chevron-right', { size: 16 })}</a>
+      </div>
+    </div>
+    <div class="consent-item">
+      <span class="consent-icon">${icon('scale', { size: 22 })}</span>
+      <div>
+        <strong>AGB</strong>
+        <p>Die Regeln der Warteschlange – z. B. dass es keinen Anspruch auf einen Druck gibt und nichts Gefährliches gedruckt wird.</p>
+        <a href="${withBack('/agb', back)}">AGB lesen${icon('chevron-right', { size: 16 })}</a>
+      </div>
+    </div>
+    ${consentForm(ctx, back)}
+  </section>`;
+}
+
+function siteFooter() {
+  return html`<footer class="site-foot">
+    <a href="/agb">AGB</a><span aria-hidden="true">·</span><a href="/datenschutz">Datenschutz &amp; Cookies</a>
+  </footer>`;
+}
+
 /** bare: ohne Menü und Installations-Hinweis (Offline-Seite). */
 function layout(ctx, { title, body, scripts = '', bare = false }) {
   const { isAdmin, csrf, flashes, user } = ctx;
+  // Die Seiten AGB/Datenschutz zeigen die Zustimmung unten im Text statt im Dialog.
+  const consentOpen = Boolean(ctx.consent && ctx.consent.needed);
+  const askConsent = !bare && consentOpen && !ctx.consentInline;
+  const inert = askConsent ? raw(' inert') : '';
   // Fehler bleiben stehen; Erfolgsmeldungen erscheinen als Einblendung, die
   // man auch sieht, wenn die Seite zu einem Auftrag weiter unten springt.
   const errors = flashes.filter((f) => f.type === 'error');
@@ -98,7 +154,7 @@ function layout(ctx, { title, body, scripts = '', bare = false }) {
   <script src="${assetUrl('/app.js')}" defer></script>
 </head>
 <body>
-  <header class="appbar">
+  <header class="appbar"${inert}>
     <div class="wrap appbar-inner">
       <a class="brand" href="${isAdmin ? '/admin' : '/'}">
         <span class="brand-mark">${logo(34)}</span>
@@ -115,7 +171,7 @@ function layout(ctx, { title, body, scripts = '', bare = false }) {
     </div>
   </header>
 
-  <main class="wrap page">
+  <main class="wrap page"${inert}>
     ${errors.length ? html`<div class="flashes">
       ${errors.map((f) => html`<div class="flash flash-error">${icon('alert-circle')}<span>${f.message}</span></div>`)}
     </div>` : ''}
@@ -126,8 +182,10 @@ function layout(ctx, { title, body, scripts = '', bare = false }) {
   </main>
 
   ${bare ? '' : html`
-  ${installBanner()}
-  <nav class="tabbar" aria-label="Hauptmenü">${navItems(ctx, 'tab')}</nav>`}
+  <div${inert}>${siteFooter()}</div>
+  ${consentOpen ? '' : installBanner()}
+  <nav class="tabbar" aria-label="Hauptmenü"${inert}>${navItems(ctx, 'tab')}</nav>
+  ${askConsent ? consentDialog(ctx) : ''}`}
   ${scripts}
 </body>
 </html>`;
@@ -431,7 +489,7 @@ function adminSetup(ctx, { setupEnabled, values }) {
 const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2)
   .map((part) => part[0]).join('').toUpperCase();
 
-function adminUsers(ctx, { users, me, newValues, openNew }) {
+function adminUsers(ctx, { users, me, newValues, openNew, legal: legalInfo }) {
   const body = html`
 ${pageHead('Konten', { iconName: 'users', sub: html`Angemeldet als <strong>${me.displayName}</strong> (${me.username})` })}
 
@@ -481,6 +539,16 @@ ${pageHead('Konten', { iconName: 'users', sub: html`Angemeldet als <strong>${me.
       <button class="btn btn-primary" type="submit">${icon('user-plus', { size: 18 })}<span>Konto anlegen</span></button>
     </form>
   </details>
+</section>
+
+<section class="card" id="rechtliches">
+  ${sectionHead('AGB & Datenschutz', { iconName: 'scale' })}
+  <p class="muted">Alle Besucher stimmen beim ersten Besuch den AGB und dem Cookie-Hinweis zu.
+    Aktuell gilt Version ${legalInfo.version}${legalInfo.updatedAt ? html` vom ${ctx.day(legalInfo.updatedAt)}` : ''}.</p>
+  <div class="actions">
+    <a class="btn" href="/admin/rechtliches">${icon('pencil', { size: 18 })}<span>Texte bearbeiten</span></a>
+    <a class="btn btn-ghost" href="/agb">${icon('scale', { size: 18 })}<span>AGB ansehen</span></a>
+  </div>
 </section>`;
   return layout(ctx, { title: 'Konten', body });
 }
@@ -506,6 +574,7 @@ const LOG_KINDS = {
   nutzer_angelegt: ['user-plus', 'Konto angelegt', 'info'],
   nutzer_geloescht: ['user-x', 'Konto gelöscht', 'danger'],
   passwort_geaendert: ['key', 'Passwort geändert', 'neutral'],
+  rechtliches_geaendert: ['scale', 'AGB & Datenschutz geändert', 'info'],
 };
 
 function adminLog(ctx, { entries }) {
@@ -533,7 +602,7 @@ ${pageHead('Verlauf', { iconName: 'history', sub: `Die letzten ${entries.length}
 
 // --- Admin: Aufträge -----------------------------------------------------------------
 
-function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValues, openNew }) {
+function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValues, openNew, legalMissingContact }) {
   const discordOk = discord.configured && !discord.error;
   const discordLabel = discord.error ? 'Fehler' : discord.configured ? 'aktiv' : 'nicht eingerichtet';
   const body = html`
@@ -543,6 +612,9 @@ ${pageHead('Aufträge', {
     actions: html`<a class="status-pill ${discordOk ? 'is-ok' : 'is-warn'}" href="#discord">${
       icon('message', { size: 16 })}<span>Discord ${discordLabel}</span></a>`,
   })}
+
+${legalMissingContact ? html`<p class="note note-warn page-note">${icon('scale', { size: 16 })}<span>${
+    'Im Datenschutz-Hinweis fehlt noch, wer verantwortlich ist. '}<a href="/admin/rechtliches">Jetzt Namen und Kontakt eintragen</a>.</span></p>` : ''}
 
 <section class="card" id="anfragen">
   ${sectionHead('Warten auf Freigabe', { iconName: 'inbox', count: pending.length })}
@@ -881,6 +953,66 @@ ${raw(EXPORT_JS)}
 </html>`;
 }
 
+const LEGAL_PAGES = {
+  agb: { title: 'AGB', sub: 'Allgemeine Geschäftsbedingungen der Druck-Warteschlange', iconName: 'scale', field: 'agb' },
+  datenschutz: { title: 'Datenschutz & Cookies', sub: 'Welche Daten gespeichert werden – und welche nicht', iconName: 'shield', field: 'datenschutz' },
+};
+
+function legalPage(ctx, { kind, legal: legalInfo, back }) {
+  const page = LEGAL_PAGES[kind];
+  const other = kind === 'agb' ? { href: '/datenschutz', label: 'Datenschutz & Cookies' } : { href: '/agb', label: 'AGB' };
+  const body = html`
+${pageHead(page.title, {
+    iconName: page.iconName,
+    sub: html`${page.sub} · Stand ${legalInfo.updatedAt ? ctx.day(legalInfo.updatedAt) : 'Vorlage'} (Version ${legalInfo.version})`,
+    actions: ctx.isAdmin ? html`<a class="btn" href="/admin/rechtliches">${icon('pencil', { size: 18 })}<span>Bearbeiten</span></a>` : '',
+  })}
+<article class="card legal">${legal.render(legalInfo[page.field])}</article>
+${ctx.consent && ctx.consent.needed ? html`
+<section class="card consent-inline">
+  <p><strong>Einverstanden?</strong> Mit dem Knopf akzeptierst du die AGB und das technisch notwendige Cookie
+    (<a href="${withBack(other.href, back)}">${other.label} lesen</a>).</p>
+  ${consentForm(ctx, back)}
+</section>` : html`
+<p class="muted small legal-foot">${icon('check-circle', { size: 16 })}<span>Du hast bereits zugestimmt.</span>
+  <a href="${other.href}">${other.label}</a></p>`}`;
+  return layout({ ...ctx, consentInline: true }, { title: page.title, body });
+}
+
+function adminLegal(ctx, { legal: legalInfo }) {
+  const body = html`
+${pageHead('AGB & Datenschutz', {
+    iconName: 'scale',
+    sub: html`Version ${legalInfo.version}${legalInfo.updatedAt
+      ? html` · geändert am ${ctx.date(legalInfo.updatedAt)}${legalInfo.updatedBy ? html` von ${legalInfo.updatedBy}` : ''}` : ' · Vorlage'}`,
+  })}
+${legal.hasPlaceholder(legalInfo) ? html`<p class="note note-warn page-note">${icon('alert', { size: 16 })}<span>${
+    `Trag ganz unten im Datenschutz-Hinweis noch ein, wer verantwortlich ist (Name und Kontakt) – statt ${legal.CONTACT_PLACEHOLDER}.`}</span></p>` : ''}
+<section class="card">
+  <form method="post" action="/admin/rechtliches" class="form">
+    <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+    <label class="field">
+      <span class="label">AGB</span>
+      <textarea name="agb" rows="16" maxlength="${legal.MAX_LENGTH}" class="legal-editor">${legalInfo.agb}</textarea>
+    </label>
+    <label class="field">
+      <span class="label">Datenschutz &amp; Cookies</span>
+      <textarea name="datenschutz" rows="16" maxlength="${legal.MAX_LENGTH}" class="legal-editor">${legalInfo.datenschutz}</textarea>
+    </label>
+    <p class="muted small">Formatierung: <code>## Überschrift</code>, Zeilen mit <code>- </code> werden zur Aufzählung,
+      <code>**fett**</code>, eine leere Zeile beginnt einen neuen Absatz. Ein leeres Feld stellt die Vorlage wieder her.
+      Die Vorlagen sind ein Vorschlag, keine Rechtsberatung.</p>
+    <label class="check">
+      <input type="checkbox" name="neu_zustimmen" value="ja" checked>
+      <span><strong>Alle müssen neu zustimmen</strong> – empfohlen, wenn sich inhaltlich etwas geändert hat.
+        Ohne Haken gelten bisherige Zustimmungen weiter (z. B. bei Tippfehlern).</span>
+    </label>
+    <button class="btn btn-primary" type="submit">${icon('check', { size: 18 })}<span>Speichern</span></button>
+  </form>
+</section>`;
+  return layout(ctx, { title: 'AGB & Datenschutz', body });
+}
+
 function errorPage(ctx, { status, message }) {
   const body = authCard(status === 404 ? 'Nicht gefunden' : 'Hoppla', message, html`
   <a class="btn btn-primary btn-block" href="/">${icon('home', { size: 18 })}<span>Zur Startseite</span></a>`);
@@ -907,5 +1039,5 @@ function offlinePage() {
 
 module.exports = {
   index, publicQueue, adminLogin, adminSetup, adminUsers, adminLog, adminDashboard, adminEdit, adminArchive,
-  archiveExport, errorPage, offlinePage,
+  archiveExport, errorPage, offlinePage, legalPage, adminLegal,
 };

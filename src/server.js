@@ -7,6 +7,7 @@ const express = require('express');
 const discord = require('./discord');
 const forms = require('./forms');
 const jobs = require('./jobs');
+const legal = require('./legal');
 const pwa = require('./pwa');
 const views = require('./views');
 const { createStorage, databaseHint } = require('./storage');
@@ -20,6 +21,14 @@ const str = (value) => (typeof value === 'string' ? value.trim() : '');
 function safeBack(value, fallback) {
   return typeof value === 'string' && /^\/admin(\/archiv)?(\?[^\s#]*)?$/.test(value) ? value : fallback;
 }
+
+/** Rücksprung nach der Zustimmung – nur Pfade dieser Seite. */
+function safeLocal(value) {
+  return typeof value === 'string' && value.length <= 300 && /^\/(?![/\\])[^\s]*$/.test(value) ? value : '/';
+}
+
+/** Die Zustimmung zu AGB und Cookies bleibt auch beim An- und Abmelden erhalten. */
+const keepConsent = (session) => (session.zustimmung ? { zustimmung: session.zustimmung } : {});
 
 /** Führt fn für alle Elemente aus, höchstens limit gleichzeitig. */
 async function mapLimit(items, limit, fn) {
@@ -104,7 +113,7 @@ function createApp(config, deps = {}) {
       delete req.session.flash;
       const ctx = {
         csrf: csrfToken(req), isAdmin: Boolean(req.user), user: users.publicUser(req.user), flashes, date, day,
-        path: req.path, pendingCount: req.pendingCount || 0,
+        path: req.path, url: req.originalUrl, pendingCount: req.pendingCount || 0, consent: req.consent || null,
       };
       res.status(status).type('html').send(String(views[view](ctx, data)));
     };
@@ -145,10 +154,15 @@ function createApp(config, deps = {}) {
     if (uid) {
       const user = await store.getUser(uid);
       if (user && user.sessionVersion === v) req.user = user;
-      else req.session = {};
+      else req.session = keepConsent(req.session);
     }
     // Zähler für die Navigation: wie viele Anfragen warten auf Freigabe?
     if (req.user && req.method === 'GET') req.pendingCount = jobs.pending(await store.readData()).length;
+    // Hat diese Sitzung den aktuellen AGB und dem Cookie-Hinweis schon zugestimmt?
+    if (req.method === 'GET') {
+      req.legal = await legal.load(store);
+      req.consent = legal.consentState(req.legal, req.session);
+    }
     next();
   });
 
@@ -175,7 +189,9 @@ function createApp(config, deps = {}) {
 
   function logIn(req, user) {
     // Neue Sitzung, damit nichts aus der Zeit vor dem Login übrig bleibt.
-    req.session = { uid: user.id, v: user.sessionVersion, name: req.session.name, csrf: req.session.csrf };
+    req.session = {
+      uid: user.id, v: user.sessionVersion, name: req.session.name, csrf: req.session.csrf, zustimmung: req.session.zustimmung,
+    };
     req.user = user;
   }
 
@@ -244,6 +260,11 @@ function createApp(config, deps = {}) {
         errors.push('Das ging etwas schnell – bitte prüf kurz deine Angaben und schick sie nochmal ab.');
       }
     }
+    req.legal = await legal.load(store);
+    req.consent = legal.consentState(req.legal, req.session);
+    if (req.consent.needed) {
+      errors.push('Bitte stimm zuerst den AGB und dem Cookie-Hinweis zu – dann kannst du deinen Auftrag abschicken.');
+    }
     if (!errors.length && jobs.pending(await store.readData()).length >= config.maxPending) {
       errors.push('Gerade warten schon sehr viele Anfragen auf Freigabe – bitte versuch es später nochmal.');
     }
@@ -263,6 +284,41 @@ function createApp(config, deps = {}) {
     const notified = discord.notifyNewRequest(store, config, job, discordDeps)
       .catch((err) => console.error('Discord-Meldung für neue Anfrage fehlgeschlagen:', err));
     if (deps.onBackgroundTask) deps.onBackgroundTask(notified);
+  });
+
+  // --- AGB, Datenschutz, Zustimmung ------------------------------------------------------
+
+  app.get('/agb', (req, res) => {
+    res.page('legalPage', { kind: 'agb', legal: req.legal, back: safeLocal(req.query.zurueck) });
+  });
+
+  app.get('/datenschutz', (req, res) => {
+    res.page('legalPage', { kind: 'datenschutz', legal: req.legal, back: safeLocal(req.query.zurueck) });
+  });
+
+  app.post('/zustimmung', async (req, res) => {
+    req.session.zustimmung = (await legal.load(store)).version;
+    res.redirect(303, safeLocal(req.body.back));
+  });
+
+  app.get('/admin/rechtliches', requireAdmin, (req, res) => {
+    res.page('adminLegal', { legal: req.legal });
+  });
+
+  app.post('/admin/rechtliches', requireAdmin, async (req, res) => {
+    const renew = req.body.neu_zustimmen === 'ja';
+    const saved = await legal.save(store, {
+      agb: str(req.body.agb), datenschutz: str(req.body.datenschutz), renew, userName: req.user.displayName,
+    });
+    // Wer speichert, hat die neue Fassung ja gerade gelesen.
+    req.session.zustimmung = saved.version;
+    await log(req, 'rechtliches_geaendert', {
+      details: renew ? `Version ${saved.version} – alle müssen neu zustimmen` : `Version ${saved.version} (ohne neue Zustimmung)`,
+    });
+    req.flash('success', renew
+      ? 'Gespeichert. Alle werden beim nächsten Besuch gebeten, neu zuzustimmen.'
+      : 'Gespeichert. Bisherige Zustimmungen gelten weiter.');
+    res.redirect(303, '/admin/rechtliches');
   });
 
   // --- Anmelden, Ersteinrichtung, Konten ----------------------------------------------
@@ -300,7 +356,7 @@ function createApp(config, deps = {}) {
   });
 
   app.post('/admin/logout', (req, res) => {
-    req.session = {};
+    req.session = keepConsent(req.session);
     res.redirect(303, '/');
   });
 
@@ -345,6 +401,7 @@ function createApp(config, deps = {}) {
       me: users.publicUser(req.user),
       newValues: extra.newValues || {},
       openNew: Boolean(extra.newValues),
+      legal: await legal.load(store),
     }, status);
   }
 
@@ -425,6 +482,7 @@ function createApp(config, deps = {}) {
       topN: config.discordTopN,
       newValues: newValues || { requester: req.user.displayName, quantity: 1 },
       openNew: Boolean(newValues),
+      legalMissingContact: legal.hasPlaceholder(await legal.load(store)),
     }, status);
   }
 

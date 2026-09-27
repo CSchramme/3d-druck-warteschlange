@@ -313,6 +313,7 @@ a.chip-link:hover { text-decoration: none; filter: brightness(.97); }
 .note { display: flex; gap: 8px; margin: 10px 0 0; font-size: .92rem; white-space: pre-line; overflow-wrap: anywhere; }
 .note .icon { margin-top: 3px; color: var(--muted); }
 .note-admin { color: var(--muted); }
+.page-note { margin: 0 0 16px; }
 .note-warn { color: var(--warn); }
 .note-warn .icon { color: currentColor; }
 
@@ -352,6 +353,74 @@ a.chip-link:hover { text-decoration: none; filter: brightness(.97); }
   .toast { animation: toast-out 0s linear 10s forwards; }
   .install { animation: none; }
 }
+
+/* --- Zustimmung zu Cookies & AGB ------------------------------------------------------------------ */
+
+.consent-backdrop {
+  position: fixed; inset: 0; z-index: 40; background: rgba(8, 10, 12, .55);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+}
+body:has(.consent) { overflow: hidden; }
+.consent {
+  position: fixed; z-index: 41; left: 0; right: 0; bottom: 0;
+  max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain;
+  background: var(--surface); border-radius: 24px 24px 0 0; box-shadow: var(--shadow-lg);
+  padding: 22px 18px calc(18px + env(safe-area-inset-bottom));
+  animation: consent-in .3s ease-out;
+}
+@keyframes consent-in { from { opacity: 0; transform: translateY(24px); } }
+@media (min-width: 640px) {
+  .consent {
+    left: 50%; right: auto; top: 50%; bottom: auto; width: 480px; max-height: calc(100dvh - 48px);
+    transform: translate(-50%, -50%); border-radius: 24px; padding: 28px;
+    animation: consent-fade .25s ease-out;
+  }
+  @keyframes consent-fade { from { opacity: 0; } }
+}
+@media (prefers-reduced-motion: reduce) { .consent { animation: none; } }
+.consent-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 16px; }
+.consent-logo svg { display: block; }
+.consent-head h2 { margin: 2px 0 4px; font-size: 1.2rem; }
+.consent-head p { margin: 0; color: var(--muted); }
+.consent-item {
+  display: flex; gap: 12px; align-items: flex-start; padding: 14px; margin-bottom: 10px;
+  background: var(--surface-2); border-radius: 16px;
+}
+.consent-item strong { display: block; margin-bottom: 2px; }
+.consent-item p { margin: 0 0 6px; color: var(--muted); font-size: .92rem; }
+.consent-item a { display: inline-flex; align-items: center; gap: 2px; font-weight: 650; font-size: .92rem; }
+.consent-icon {
+  flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--green-soft); color: var(--green-strong);
+}
+.consent-form { margin-top: 16px; }
+.consent-inline p { margin: 0; }
+
+/* --- AGB & Datenschutz ------------------------------------------------------------------------------ */
+
+.legal { line-height: 1.6; overflow-wrap: break-word; }
+.legal h2 { font-size: 1.1rem; margin: 1.4em 0 .4em; }
+.legal h2:first-child, .legal h3:first-child { margin-top: 0; }
+.legal h3 { font-size: 1rem; margin: 1.2em 0 .3em; }
+.legal p { margin: 0 0 .8em; }
+.legal ul { margin: 0 0 .8em; padding-left: 1.3em; }
+.legal li { margin-bottom: .3em; }
+.legal-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.legal-foot .icon { color: var(--green-strong); }
+.legal-foot a { margin-left: auto; }
+.legal-editor { font-size: .95rem; line-height: 1.5; min-height: 240px; }
+.check { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+.check input[type="checkbox"] {
+  appearance: auto; -webkit-appearance: checkbox; width: 22px; height: 22px; min-height: 0; flex: none;
+  margin: 2px 0 0; padding: 0; border: 0; background: none; accent-color: var(--green);
+}
+
+.site-foot {
+  display: flex; justify-content: center; flex-wrap: wrap; gap: 4px 10px;
+  padding: 4px 16px 28px; color: var(--muted); font-size: .85rem;
+}
+.site-foot a { color: var(--muted); }
+.site-foot a:hover { color: var(--text); }
 
 /* --- Hinweis „Als App installieren“ ---------------------------------------------------------------- */
 

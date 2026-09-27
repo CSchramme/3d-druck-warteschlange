@@ -100,8 +100,10 @@ test('Service Worker: nie zwischengespeichert, gültiges JavaScript, alle Dateie
 
 test('Seiten binden Manifest, Symbole und die aktuelle Version von Aussehen und Skript ein', async () => {
   const version = pwa.assetVersion();
-  const admin = await env.admin();
-  for (const [client, url] of [[env.client(), '/'], [env.client(), '/warteschlange'], [env.client(), '/admin/login'],
+  // Nach der Zustimmung zu AGB & Cookies (vorher bleibt der Installations-Hinweis weg).
+  const admin = await (await env.admin()).accept();
+  const visitor = await env.client().accept();
+  for (const [client, url] of [[visitor, '/'], [visitor, '/warteschlange'], [visitor, '/admin/login'],
     [admin, '/admin'], [admin, '/admin/archiv']]) {
     const page = (await client.get(url)).text;
     assert.match(page, /<link rel="manifest" href="\/manifest.webmanifest">/, url);
