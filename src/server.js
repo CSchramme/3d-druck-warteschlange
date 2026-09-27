@@ -8,6 +8,7 @@ const discord = require('./discord');
 const forms = require('./forms');
 const jobs = require('./jobs');
 const legal = require('./legal');
+const maintenance = require('./maintenance');
 const pwa = require('./pwa');
 const rateLimit = require('./ratelimit');
 const views = require('./views');
@@ -115,6 +116,7 @@ function createApp(config, deps = {}) {
       const ctx = {
         csrf: csrfToken(req), isAdmin: Boolean(req.user), user: users.publicUser(req.user), flashes, date, day,
         path: req.path, url: req.originalUrl, pendingCount: req.pendingCount || 0, consent: req.consent || null,
+        maintenance: req.maintenance || null,
       };
       res.status(status).type('html').send(String(views[view](ctx, data)));
     };
@@ -165,6 +167,15 @@ function createApp(config, deps = {}) {
       req.consent = legal.consentState(req.legal, req.session);
     }
     next();
+  });
+
+  // Wartungsmodus: Wer nicht rein darf, sieht nur die Wartungsseite (mit
+  // verstecktem Login). Anmelden und Abmelden gehen immer.
+  app.use(async (req, res, next) => {
+    req.maintenance = await maintenance.load(store);
+    if (maintenance.allows(req.maintenance, req.user) || maintenance.OPEN_PATHS.has(req.path)) return next();
+    res.set('Retry-After', '900');
+    res.page('maintenancePage', { state: req.maintenance }, 503);
   });
 
   function requireAdmin(req, res, next) {
@@ -330,6 +341,32 @@ function createApp(config, deps = {}) {
       ? 'Gespeichert. Alle werden beim nächsten Besuch gebeten, neu zuzustimmen.'
       : 'Gespeichert. Bisherige Zustimmungen gelten weiter.');
     res.redirect(303, '/admin/rechtliches');
+  });
+
+  // --- Wartungsmodus ------------------------------------------------------------------------
+
+  async function logMaintenance(req, saved) {
+    if (saved.before === saved.on) return;
+    await log(req, saved.on ? 'wartung_an' : 'wartung_aus', {
+      details: saved.on ? (saved.onlyOwner ? `nur ${saved.ownerName}` : 'alle angemeldeten Konten') : null,
+    });
+  }
+
+  app.post('/admin/wartung', requireAdmin, async (req, res) => {
+    const saved = await maintenance.update(store, {
+      on: req.body.an === 'ja', message: str(req.body.nachricht), onlyOwner: req.body.zugang === 'ich',
+    }, req.user);
+    await logMaintenance(req, saved);
+    if (saved.on && !saved.before) req.flash('success', 'Wartungsmodus ist an – Besucher sehen jetzt nur die Wartungsseite.');
+    else if (!saved.on && saved.before) req.flash('success', 'Wartungsmodus ist aus – die Seite ist wieder für alle offen.');
+    else req.flash('success', 'Gespeichert.');
+    res.redirect(303, '/admin#wartung');
+  });
+
+  app.post('/admin/wartung/aus', requireAdmin, async (req, res) => {
+    await logMaintenance(req, await maintenance.update(store, { on: false }, req.user));
+    req.flash('success', 'Wartungsmodus ist aus – die Seite ist wieder für alle offen.');
+    res.redirect(303, safeLocal(req.body.back));
   });
 
   // --- Anmelden, Ersteinrichtung, Konten ----------------------------------------------

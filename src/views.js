@@ -7,6 +7,7 @@ const { html, raw } = require('./html');
 const { icon } = require('./icons');
 const { logoSvg } = require('./logo');
 const legal = require('./legal');
+const maintenance = require('./maintenance');
 const { isMakerworld } = require('./makerworld');
 const { assetUrl } = require('./pwa');
 
@@ -119,8 +120,26 @@ function siteFooter() {
   </footer>`;
 }
 
-/** bare: ohne Menü und Installations-Hinweis (Offline-Seite). */
-function layout(ctx, { title, body, scripts = '', bare = false }) {
+// Für Angemeldete: deutlich zeigen, dass die Seite gerade für alle anderen zu ist.
+function maintenanceBanner(ctx) {
+  const state = ctx.maintenance;
+  return html`<div class="maint-banner" role="status">
+    ${icon('wrench', { size: 18 })}
+    <span><strong>Wartungsmodus ist an.</strong> ${state.onlyOwner ? `Nur ${state.ownerName || 'du'} kommt rein`
+    : 'Nur angemeldete Konten kommen rein'} – alle anderen sehen die Wartungsseite.</span>
+    <form method="post" action="/admin/wartung/aus" class="inline">
+      <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+      <input type="hidden" name="back" value="${ctx.url || '/admin'}">
+      <button class="btn btn-sm" type="submit">${icon('check', { size: 16 })}<span>Ausschalten</span></button>
+    </form>
+  </div>`;
+}
+
+/**
+ * bare: ohne Menü, Fußzeile und Hinweise (Offline- und Wartungsseite).
+ * headerAction: zusätzlicher Inhalt oben rechts (versteckter Login).
+ */
+function layout(ctx, { title, body, scripts = '', bare = false, headerAction = '' }) {
   const { isAdmin, csrf, flashes, user } = ctx;
   // Die Seiten AGB/Datenschutz zeigen die Zustimmung unten im Text statt im Dialog.
   const consentOpen = Boolean(ctx.consent && ctx.consent.needed);
@@ -161,6 +180,7 @@ function layout(ctx, { title, body, scripts = '', bare = false }) {
         <span class="brand-text">3D-Druck</span>
       </a>
       ${bare ? '' : html`<nav class="topnav" aria-label="Hauptmenü">${navItems(ctx, 'topnav-item')}</nav>`}
+      ${headerAction}
       ${isAdmin ? html`
       <form method="post" action="/admin/logout" class="appbar-action">
         <input type="hidden" name="csrf_token" value="${csrf}">
@@ -172,6 +192,7 @@ function layout(ctx, { title, body, scripts = '', bare = false }) {
   </header>
 
   <main class="wrap page"${inert}>
+    ${!bare && isAdmin && ctx.maintenance && ctx.maintenance.on ? maintenanceBanner(ctx) : ''}
     ${errors.length ? html`<div class="flashes">
       ${errors.map((f) => html`<div class="flash flash-error">${icon('alert-circle')}<span>${f.message}</span></div>`)}
     </div>` : ''}
@@ -575,6 +596,8 @@ const LOG_KINDS = {
   nutzer_geloescht: ['user-x', 'Konto gelöscht', 'danger'],
   passwort_geaendert: ['key', 'Passwort geändert', 'neutral'],
   rechtliches_geaendert: ['scale', 'AGB & Datenschutz geändert', 'info'],
+  wartung_an: ['wrench', 'Wartungsmodus eingeschaltet', 'warn'],
+  wartung_aus: ['wrench', 'Wartungsmodus ausgeschaltet', 'ok'],
 };
 
 function adminLog(ctx, { entries }) {
@@ -609,7 +632,8 @@ function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValue
 ${pageHead('Aufträge', {
     iconName: 'inbox',
     sub: html`${pending.length} warten auf Freigabe · ${queue.length} in der Warteschlange`,
-    actions: html`<a class="status-pill ${discordOk ? 'is-ok' : 'is-warn'}" href="#discord">${
+    actions: html`${ctx.maintenance && ctx.maintenance.on ? html`<a class="status-pill is-warn" href="#wartung">${
+      icon('wrench', { size: 16 })}<span>Wartung an</span></a>` : ''}<a class="status-pill ${discordOk ? 'is-ok' : 'is-warn'}" href="#discord">${
       icon('message', { size: 16 })}<span>Discord ${discordLabel}</span></a>`,
   })}
 
@@ -704,6 +728,8 @@ ${legalMissingContact ? html`<p class="note note-warn page-note">${icon('scale',
       </li>`)}
   </ul>` : empty('check-circle', 'Noch nichts erledigt.')}
 </section>
+
+${maintenanceCard(ctx)}
 
 <section class="card" id="discord">
   ${sectionHead('Discord', { iconName: 'message', extra: discord.configured
@@ -1013,6 +1039,66 @@ ${legal.hasPlaceholder(legalInfo) ? html`<p class="note note-warn page-note">${i
   return layout(ctx, { title: 'AGB & Datenschutz', body });
 }
 
+function maintenanceCard(ctx) {
+  const state = ctx.maintenance || { on: false, message: maintenance.DEFAULT_MESSAGE, onlyOwner: false };
+  return html`<section class="card" id="wartung">
+  ${sectionHead('Wartungsmodus', { iconName: 'wrench', extra: html`<span class="status-pill ${state.on ? 'is-warn' : 'is-ok'}">${
+    state.on ? 'An' : 'Aus'}</span>` })}
+  <form method="post" action="/admin/wartung" class="form">
+    <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+    <label class="switch-row">
+      <span><strong>Seite für Besucher schließen</strong>
+        <small>${state.on ? html`An seit ${ctx.date(state.since)} – Besucher sehen nur die Wartungsseite.`
+    : 'Besucher sehen dann nur eine Wartungsseite, bis du wieder ausschaltest.'}</small></span>
+      <input type="checkbox" name="an" value="ja" class="switch" data-autosubmit${state.on ? html` checked` : ''}
+             aria-label="Wartungsmodus">
+    </label>
+    <label class="field">
+      <span class="label">Text auf der Wartungsseite</span>
+      <textarea name="nachricht" rows="3" maxlength="${maintenance.MAX_MESSAGE}">${state.message}</textarea>
+    </label>
+    <fieldset class="choices">
+      <legend class="label">Wer kommt während der Wartung rein?</legend>
+      <label class="check"><input type="radio" name="zugang" value="alle"${state.onlyOwner ? '' : html` checked`}>
+        <span><strong>Alle angemeldeten Konten</strong></span></label>
+      <label class="check"><input type="radio" name="zugang" value="ich"${state.onlyOwner ? html` checked` : ''}>
+        <span><strong>Nur ich (${ctx.user.displayName})</strong> – andere Konten sehen auch die Wartungsseite</span></label>
+    </fieldset>
+    <p class="muted small">Zum Anmelden während der Wartung: auf der Wartungsseite oben rechts auf das
+      kleine Schloss tippen – oder direkt <code>/admin/login</code> öffnen.</p>
+    <button class="btn" type="submit">${icon('check', { size: 18 })}<span>Speichern</span></button>
+  </form>
+</section>`;
+}
+
+/** Oben rechts ein unauffälliges Schloss – dahinter das Anmeldeformular. */
+function hiddenLogin(ctx) {
+  return html`<details class="hidden-login appbar-action">
+    <summary class="icon-btn hidden-login-toggle" title="Anmelden" aria-label="Anmelden">${icon('lock', { size: 18 })}</summary>
+    <form method="post" action="/admin/login" class="hidden-login-panel form">
+      <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+      <input name="username" required maxlength="40" autocapitalize="off" spellcheck="false" autocomplete="username"
+             placeholder="Benutzername" aria-label="Benutzername">
+      <input name="password" type="password" required maxlength="200" autocomplete="current-password"
+             placeholder="Passwort" aria-label="Passwort">
+      <button class="btn btn-primary btn-block" type="submit">${icon('log-in', { size: 18 })}<span>Anmelden</span></button>
+    </form>
+  </details>`;
+}
+
+function maintenancePage(ctx, { state }) {
+  const body = html`
+<section class="card auth-card maint-card">
+  <div class="auth-mark auth-mark-icon maint-icon">${icon('wrench', { size: 30 })}</div>
+  <h1>Wartungsarbeiten</h1>
+  <p class="lead maint-message">${state.message}</p>
+  ${ctx.isAdmin ? html`<p class="note note-warn">${icon('lock', { size: 16 })}<span>${
+    `Du bist als ${ctx.user.displayName} angemeldet – während dieser Wartung hat aber nur ${state.ownerName || 'der Admin'} Zugang.`
+  }</span></p>` : ''}
+</section>`;
+  return layout(ctx, { title: 'Wartung', body, bare: true, headerAction: ctx.isAdmin ? '' : hiddenLogin(ctx) });
+}
+
 function errorPage(ctx, { status, message }) {
   const body = authCard(status === 404 ? 'Nicht gefunden' : 'Hoppla', message, html`
   <a class="btn btn-primary btn-block" href="/">${icon('home', { size: 18 })}<span>Zur Startseite</span></a>`);
@@ -1039,5 +1125,5 @@ function offlinePage() {
 
 module.exports = {
   index, publicQueue, adminLogin, adminSetup, adminUsers, adminLog, adminDashboard, adminEdit, adminArchive,
-  archiveExport, errorPage, offlinePage, legalPage, adminLegal,
+  archiveExport, errorPage, offlinePage, legalPage, adminLegal, maintenancePage,
 };

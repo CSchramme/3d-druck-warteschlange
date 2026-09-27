@@ -12,6 +12,7 @@ const { loadConfig } = require('../src/config');
 const { createDiscordApi, explainError, inviteUrl } = require('../src/discord-api');
 const discordBot = require('../src/discord-bot');
 const { createStorage, databaseHint } = require('../src/storage');
+const maintenance = require('../src/maintenance');
 
 const ROOT = path.resolve(__dirname, '..');
 const ok = (text) => console.log(`  ✅ ${text}`);
@@ -141,6 +142,14 @@ async function main() {
     const count = (status) => data.jobs.filter((job) => job.status === status).length;
     ok(`Aufträge: ${count('pending')} warten auf Freigabe, ${count('queued')} in der Warteschlange, `
       + `${count('done')} gedruckt, ${count('rejected')} abgelehnt`);
+
+    const maint = await maintenance.load(store);
+    if (maint.on) {
+      warn(`Wartungsmodus ist AN – Besucher sehen nur die Wartungsseite (${maint.onlyOwner
+        ? `nur ${maint.ownerName} kommt rein` : 'angemeldete Konten kommen rein'}). Ausschalten: wartung aus`);
+    } else {
+      ok('Wartungsmodus aus');
+    }
 
     const users = await store.listUsers();
     if (users.length) {

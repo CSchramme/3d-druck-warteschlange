@@ -10,6 +10,7 @@
     "pruefen": "node scripts/pruefen.js",
     "passwort": "node scripts/passwort.js",
     "einstellen": "node scripts/einstellen.js",
+    "wartung": "node scripts/wartung.js",
     "test": "node --test test/*.test.js"
   },
   "engines": {

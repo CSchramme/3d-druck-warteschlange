@@ -234,6 +234,29 @@ test('npm run passwort legt ein Konto an bzw. setzt ein neues Passwort', async (
   }
 });
 
+test('npm run wartung: anzeigen, an, aus – als Notausgang', async () => {
+  const { env, store, cleanup } = commandEnv('wartung');
+  try {
+    assert.match(run('wartung.js', [], env).stdout, /Wartungsmodus ist aus/);
+    const on = run('wartung.js', ['an'], env);
+    assert.equal(on.status, 0, on.stderr);
+    assert.match(on.stdout, /Wartungsmodus ist AN .* alle angemeldeten Konten kommen rein/);
+    assert.match(run('pruefen.js', [], env).stdout, /Wartungsmodus ist AN/);
+
+    // Auch „nur ich“ (z. B. ausgesperrt) lässt sich so ausschalten.
+    await store.writeState('wartung', { ...(await store.readState('wartung')), onlyOwner: true, ownerId: 99, ownerName: 'Weg' });
+    const off = run('wartung.js', ['AUS'], env);
+    assert.equal(off.status, 0, off.stderr);
+    assert.match(off.stdout, /Wartungsmodus ist aus/);
+    assert.equal((await require('../src/maintenance').load(store)).on, false);
+    assert.deepEqual((await store.listLog()).map((e) => [e.action, e.userName]),
+      [['wartung_aus', 'npm run wartung'], ['wartung_an', 'npm run wartung']]);
+    assert.equal(run('wartung.js', ['vielleicht'], env).status, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
 test('npm run pruefen meldet den Zustand verständlich', async () => {
   const { env, cleanup } = commandEnv('pruefen');
   try {

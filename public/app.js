@@ -14,6 +14,14 @@
     if (message && !window.confirm(message)) e.preventDefault();
   });
 
+  // Schalter mit data-autosubmit speichern sofort (z. B. der Wartungsmodus).
+  document.addEventListener('change', function (e) {
+    var input = e.target;
+    if (!input.hasAttribute || !input.hasAttribute('data-autosubmit') || !input.form) return;
+    if (input.form.requestSubmit) input.form.requestSubmit();
+    else input.form.submit();
+  });
+
   // Service Worker: macht die Seite installierbar und zeigt ohne Internet die Offline-Seite.
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

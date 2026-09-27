@@ -60,6 +60,21 @@ Gut zu wissen:
 - Nach `run aktualisieren` holt sich die App die neuen Dateien von selbst.
 - Wer den Hinweis wegklickt, sieht ihn 30 Tage lang nicht mehr.
 
+## Wartungsmodus
+
+Im Admin-Bereich unter **Aufträge** ganz unten: Schalter **„Seite für Besucher
+schließen“**. Solange er an ist, sehen alle anderen nur eine Wartungsseite mit
+deinem Text; Aufträge abschicken geht dann nicht.
+
+- **Wer rein darf:** alle angemeldeten Konten – oder mit **„Nur ich“** nur dein
+  Konto.
+- **Anmelden während der Wartung:** auf der Wartungsseite oben rechts auf das
+  kleine, blasse Schloss tippen – oder direkt `/admin/login` öffnen.
+- Oben auf jeder Seite erinnert dich ein Hinweis mit **Ausschalten**-Knopf daran,
+  dass die Seite gerade zu ist.
+- **Notausgang:** Kommst du selbst nicht mehr rein, schaltet der npm-Befehl
+  `wartung aus` den Wartungsmodus aus (`wartung` allein zeigt den Stand).
+
 ## AGB, Datenschutz & Cookies
 
 Beim ersten Besuch sieht jeder – auch Admins – einen kurzen Dialog: **Cookies &
@@ -243,6 +258,7 @@ Befehl eintragen, z. B. `pruefen`, und ausführen. Die Ausgabe zeigt Plesk direk
 | `pruefen` | Prüft alles: Node-Version, Datenbank-Verbindung, Discord (Bot: angemeldet?, im Server?, Kanal?, Symbole), Konten, Anzahl der Aufträge – und sagt, was fehlt. Zeigt keine Passwörter. |
 | `passwort tim` | Setzt für das Konto `tim` ein neues, zufälliges Passwort (und hebt eine Sperre auf) – oder legt das Konto an, falls es das noch nicht gibt: `passwort tim Tim Schmidt`. Das Passwort steht in der Ausgabe; danach unter **Konten** ändern. |
 | `einstellen` | Zeigt die Werte aus der Datei `.env` (Passwörter verdeckt). Mit `einstellen DB_NAME=abc DB_USER=abc` trägst du Werte ein, mit `einstellen NAME=` entfernst du einen. Nur nötig, falls Plesk die Umgebungsvariablen an npm-Befehle nicht weitergibt (`pruefen` sagt dir das). |
+| `wartung` | Zeigt, ob der Wartungsmodus an ist. `wartung aus` schaltet ihn aus (Notausgang, falls du nicht mehr reinkommst), `wartung an` schaltet ihn an. |
 
 ## Ohne Plesk
 
