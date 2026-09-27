@@ -151,16 +151,33 @@ kommst du zur **Ersteinrichtung**: Als Einrichtungs-Code gibst du dein
 `ADMIN_PASSWORD` ein, dazu Benutzername, Name und dein neues Passwort. Danach
 brauchst du `ADMIN_PASSWORD` nicht mehr und kannst es in Plesk löschen.
 
+Statt der Ersteinrichtung im Browser geht auch der npm-Befehl `passwort tim` –
+er legt das Konto `tim` an und zeigt dir das Passwort.
+
 Zum Test unten bei „Discord“ auf **Jetzt an Discord senden** klicken – dann siehst
 du sofort, ob der Webhook funktioniert.
 
 ### Updates
 
-Neuen Code hochladen (bzw. in Plesk bei Git **Pull** / **Bereitstellen**), dann
-**NPM install** und **App neu starten**. Die Aufträge liegen in der Datenbank;
-für Sicherungen nutze in Plesk **Sichern & Wiederherstellen** oder den Export
-in phpMyAdmin. Den Ordner `data/` trotzdem nicht löschen (dort liegt der Schlüssel
-für die Logins).
+Einfach den npm-Befehl **`aktualisieren`** ausführen (siehe unten). Er holt die
+neueste Version von GitHub, installiert neue Pakete und startet die App neu – deine
+Daten, `data/` und `.env` bleiben unberührt.
+
+Die Aufträge liegen in der Datenbank; für Sicherungen nutze in Plesk **Sichern &
+Wiederherstellen** oder den Export in phpMyAdmin. Den Ordner `data/` nicht löschen
+(dort liegt der Schlüssel für die Logins).
+
+## Befehle für Plesk (npm)
+
+In Plesk bei der Domain → **Node.js** → **Skript ausführen** (Run script) den
+Befehl eintragen, z. B. `pruefen`, und ausführen. Die Ausgabe zeigt Plesk direkt an.
+
+| Befehl | Was er macht |
+| --- | --- |
+| `aktualisieren` | Neueste Version von GitHub holen und einspielen, Pakete installieren, App neu starten. Mit `aktualisieren main` von einem anderen Branch. |
+| `pruefen` | Prüft alles: Node-Version, Datenbank-Verbindung, Discord-Webhook, Konten, Anzahl der Aufträge – und sagt, was fehlt. Zeigt keine Passwörter. |
+| `passwort tim` | Setzt für das Konto `tim` ein neues, zufälliges Passwort (und hebt eine Sperre auf) – oder legt das Konto an, falls es das noch nicht gibt: `passwort tim Tim Schmidt`. Das Passwort steht in der Ausgabe; danach unter **Konten** ändern. |
+| `einstellen` | Zeigt die Werte aus der Datei `.env` (Passwörter verdeckt). Mit `einstellen DB_NAME=abc DB_USER=abc` trägst du Werte ein, mit `einstellen NAME=` entfernst du einen. Nur nötig, falls Plesk die Umgebungsvariablen an npm-Befehle nicht weitergibt (`pruefen` sagt dir das). |
 
 ## Ohne Plesk
 
@@ -175,9 +192,9 @@ ADMIN_PASSWORD=… DISCORD_WEBHOOK_URL=… npm start   # läuft auf Port 3000 (o
   unsichtbares Fangfeld für Bots, muss mindestens 2 Sekunden offen sein, bevor es
   abgeschickt wird, und nimmt keine neuen Anfragen mehr an, wenn schon 50 auf
   Freigabe warten (einstellbar mit `MIN_FORM_SECONDS` und `MAX_PENDING`).
-- **Passwort vergessen?** Jemand anderes mit Konto setzt dir unter **Konten** ein
-  neues. Bist du der Einzige: in phpMyAdmin alle Zeilen in `druck_nutzer` löschen –
-  dann kommt wieder die Ersteinrichtung (dafür muss `ADMIN_PASSWORD` gesetzt sein).
+- **Passwort vergessen oder ausgesperrt?** npm-Befehl `passwort <benutzername>`
+  ausführen – das neue Passwort steht in der Ausgabe. Oder jemand anderes mit
+  Konto setzt dir unter **Konten** ein neues.
 - **„Datenbank nicht erreichbar“?** Die Seite nennt den Grund (falsches Passwort,
   Datenbank gibt es nicht, Server nicht erreichbar …). Steht dort, dass Benutzer
   oder Passwort nicht stimmen, obwohl sie richtig sind, probier `DB_HOST=127.0.0.1`

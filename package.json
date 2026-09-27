@@ -6,6 +6,10 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
+    "aktualisieren": "node scripts/aktualisieren.js",
+    "pruefen": "node scripts/pruefen.js",
+    "passwort": "node scripts/passwort.js",
+    "einstellen": "node scripts/einstellen.js",
     "test": "node --test test/*.test.js"
   },
   "engines": {

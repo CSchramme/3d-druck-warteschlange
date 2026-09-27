@@ -6,8 +6,22 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 
-// Liest eine .env-Datei (KEY=wert). Variablen, die schon gesetzt sind (z. B. in
-// Plesk unter „Benutzerdefinierte Umgebungsvariablen“), haben Vorrang.
+/** Text einer .env-Datei (NAME=wert, Kommentare mit #) -> { NAME: 'wert' }. */
+function parseEnvText(text) {
+  const values = {};
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match) continue;
+    let value = match[2];
+    const quoted = value.match(/^(['"])(.*)\1$/);
+    if (quoted) value = quoted[1] === '"' ? quoted[2].replace(/\\"/g, '"') : quoted[2];
+    values[match[1]] = value;
+  }
+  return values;
+}
+
+// Liest eine .env-Datei. Variablen, die schon gesetzt sind (z. B. in Plesk unter
+// „Benutzerdefinierte Umgebungsvariablen“), haben Vorrang.
 function loadEnvFile(file) {
   let text;
   try {
@@ -15,13 +29,8 @@ function loadEnvFile(file) {
   } catch {
     return;
   }
-  for (const line of text.split(/\r?\n/)) {
-    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
-    if (!match) continue;
-    let value = match[2];
-    const quoted = value.match(/^(['"])(.*)\1$/);
-    if (quoted) value = quoted[2];
-    if (process.env[match[1]] === undefined) process.env[match[1]] = value;
+  for (const [name, value] of Object.entries(parseEnvText(text))) {
+    if (process.env[name] === undefined) process.env[name] = value;
   }
 }
 
@@ -90,4 +99,4 @@ function loadConfig(overrides = {}) {
   return config;
 }
 
-module.exports = { loadConfig };
+module.exports = { loadConfig, parseEnvText };
