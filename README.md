@@ -70,6 +70,12 @@ deinem Text; Aufträge abschicken geht dann nicht.
   Konto.
 - **Anmelden während der Wartung:** auf der Wartungsseite oben rechts auf das
   kleine, blasse Schloss tippen – oder direkt `/admin/login` öffnen.
+- **Per Internet-Adresse (IP):** Adressen, die im Kasten eingetragen sind, kommen
+  auch ohne Anmeldung rein. **„Meine Adresse hinzufügen“** trägt deine aktuelle
+  ein (bei IPv6 gleich dein ganzes Heimnetz, weil Geräte den hinteren Teil
+  ständig wechseln). Achtung: Zuhause und am Handy ändert sich die Adresse oft –
+  das Anmelden ist sicherer. MAC-Adressen gehen nicht: Die verlassen dein
+  Heimnetz nie, kein Webserver bekommt sie zu sehen.
 - Oben auf jeder Seite erinnert dich ein Hinweis mit **Ausschalten**-Knopf daran,
   dass die Seite gerade zu ist.
 - **Notausgang:** Kommst du selbst nicht mehr rein, schaltet der npm-Befehl

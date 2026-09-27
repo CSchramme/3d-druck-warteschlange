@@ -193,6 +193,8 @@ function layout(ctx, { title, body, scripts = '', bare = false, headerAction = '
 
   <main class="wrap page"${inert}>
     ${!bare && isAdmin && ctx.maintenance && ctx.maintenance.on ? maintenanceBanner(ctx) : ''}
+    ${!bare && ctx.maintenanceBypass ? html`<div class="maint-banner" role="status">${icon('wrench', { size: 18 })}<span>${
+      'Wartungsmodus ist an – du siehst die Seite, weil deine Internet-Adresse freigeschaltet ist.'}</span></div>` : ''}
     ${errors.length ? html`<div class="flashes">
       ${errors.map((f) => html`<div class="flash flash-error">${icon('alert-circle')}<span>${f.message}</span></div>`)}
     </div>` : ''}
@@ -625,7 +627,9 @@ ${pageHead('Verlauf', { iconName: 'history', sub: `Die letzten ${entries.length}
 
 // --- Admin: Aufträge -----------------------------------------------------------------
 
-function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValues, openNew, legalMissingContact }) {
+function adminDashboard(ctx, {
+  pending, queue, finished, discord, topN, newValues, openNew, legalMissingContact, myAddress,
+}) {
   const discordOk = discord.configured && !discord.error;
   const discordLabel = discord.error ? 'Fehler' : discord.configured ? 'aktiv' : 'nicht eingerichtet';
   const body = html`
@@ -729,7 +733,7 @@ ${legalMissingContact ? html`<p class="note note-warn page-note">${icon('scale',
   </ul>` : empty('check-circle', 'Noch nichts erledigt.')}
 </section>
 
-${maintenanceCard(ctx)}
+${maintenanceCard(ctx, myAddress)}
 
 <section class="card" id="discord">
   ${sectionHead('Discord', { iconName: 'message', extra: discord.configured
@@ -1039,8 +1043,8 @@ ${legal.hasPlaceholder(legalInfo) ? html`<p class="note note-warn page-note">${i
   return layout(ctx, { title: 'AGB & Datenschutz', body });
 }
 
-function maintenanceCard(ctx) {
-  const state = ctx.maintenance || { on: false, message: maintenance.DEFAULT_MESSAGE, onlyOwner: false };
+function maintenanceCard(ctx, myAddress) {
+  const state = ctx.maintenance || { on: false, message: maintenance.DEFAULT_MESSAGE, onlyOwner: false, addresses: [] };
   return html`<section class="card" id="wartung">
   ${sectionHead('Wartungsmodus', { iconName: 'wrench', extra: html`<span class="status-pill ${state.on ? 'is-warn' : 'is-ok'}">${
     state.on ? 'An' : 'Aus'}</span>` })}
@@ -1064,6 +1068,18 @@ function maintenanceCard(ctx) {
       <label class="check"><input type="radio" name="zugang" value="ich"${state.onlyOwner ? html` checked` : ''}>
         <span><strong>Nur ich (${ctx.user.displayName})</strong> – andere Konten sehen auch die Wartungsseite</span></label>
     </fieldset>
+    <label class="field">
+      <span class="label">Diese Internet-Adressen kommen immer rein <small>(auch ohne Anmeldung, eine pro Zeile)</small></span>
+      <textarea name="adressen" rows="2" spellcheck="false" autocapitalize="off"
+                placeholder="z. B. 203.0.113.7">${state.addresses.join('\n')}</textarea>
+    </label>
+    <div class="address-hint">
+      ${myAddress ? html`<span class="muted small">Deine Adresse gerade: <code>${myAddress}</code></span>
+      <button class="btn btn-sm btn-ghost" type="submit" name="meine_adresse" value="ja">${icon('plus', { size: 16 })}<span>Meine Adresse hinzufügen</span></button>`
+    : html`<span class="muted small">Deine Internet-Adresse kommt beim Server nicht an – melde dich während der Wartung über das Schloss an.</span>`}
+    </div>
+    <p class="muted small">Zuhause und am Handy ändert sich die Adresse oft (spätestens beim nächsten Router-Neustart).
+      Sicherer ist das Anmelden. MAC-Adressen sieht ein Webserver nie – die bleiben im Heimnetz.</p>
     <p class="muted small">Zum Anmelden während der Wartung: auf der Wartungsseite oben rechts auf das
       kleine Schloss tippen – oder direkt <code>/admin/login</code> öffnen.</p>
     <button class="btn" type="submit">${icon('check', { size: 18 })}<span>Speichern</span></button>

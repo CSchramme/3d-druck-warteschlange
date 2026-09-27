@@ -32,6 +32,7 @@ async function main() {
     if (state.on) {
       console.log(`🔧 Wartungsmodus ist AN (seit ${new Date(state.since).toLocaleString('de-DE')}) – `
         + `${state.onlyOwner ? `nur ${state.ownerName} kommt rein` : 'alle angemeldeten Konten kommen rein'}.`);
+      if (state.addresses.length) console.log(`   Ohne Anmeldung kommen rein: ${state.addresses.join(', ')}`);
       console.log('   Ausschalten: wartung aus');
     } else {
       console.log('✅ Wartungsmodus ist aus – die Seite ist für alle offen.');

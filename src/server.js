@@ -116,7 +116,7 @@ function createApp(config, deps = {}) {
       const ctx = {
         csrf: csrfToken(req), isAdmin: Boolean(req.user), user: users.publicUser(req.user), flashes, date, day,
         path: req.path, url: req.originalUrl, pendingCount: req.pendingCount || 0, consent: req.consent || null,
-        maintenance: req.maintenance || null,
+        maintenance: req.maintenance || null, maintenanceBypass: Boolean(req.maintenanceBypass),
       };
       res.status(status).type('html').send(String(views[view](ctx, data)));
     };
@@ -173,7 +173,10 @@ function createApp(config, deps = {}) {
   // verstecktem Login). Anmelden und Abmelden gehen immer.
   app.use(async (req, res, next) => {
     req.maintenance = await maintenance.load(store);
-    if (maintenance.allows(req.maintenance, req.user) || maintenance.OPEN_PATHS.has(req.path)) return next();
+    const address = rateLimit.clientAddress(req);
+    // Nur über die freigeschaltete Adresse drin (nicht angemeldet)? Dann gibt es oben einen Hinweis.
+    req.maintenanceBypass = req.maintenance.on && !req.user && maintenance.addressAllowed(req.maintenance, address);
+    if (maintenance.allows(req.maintenance, req.user, address) || maintenance.OPEN_PATHS.has(req.path)) return next();
     res.set('Retry-After', '900');
     res.page('maintenancePage', { state: req.maintenance }, 503);
   });
@@ -353,8 +356,22 @@ function createApp(config, deps = {}) {
   }
 
   app.post('/admin/wartung', requireAdmin, async (req, res) => {
+    const { addresses, invalid } = maintenance.parseAddresses(req.body.adressen);
+    if (req.body.meine_adresse === 'ja') {
+      const own = maintenance.ownEntry(rateLimit.clientAddress(req));
+      if (!own) {
+        req.flash('error', 'Deine Internet-Adresse kommt beim Server nicht richtig an – Freischalten per Adresse '
+          + 'geht deshalb leider nicht. Melde dich stattdessen über das Schloss an.');
+      } else if (!addresses.includes(own) && addresses.length < maintenance.MAX_ADDRESSES) {
+        addresses.push(own);
+      }
+    }
+    if (invalid.length) {
+      req.flash('error', `Nicht übernommen: ${invalid.join(', ')} – keine gültige Internet-Adresse, eine Adresse des `
+        + 'Servers selbst oder ein zu großer Bereich.');
+    }
     const saved = await maintenance.update(store, {
-      on: req.body.an === 'ja', message: str(req.body.nachricht), onlyOwner: req.body.zugang === 'ich',
+      on: req.body.an === 'ja', message: str(req.body.nachricht), onlyOwner: req.body.zugang === 'ich', addresses,
     }, req.user);
     await logMaintenance(req, saved);
     if (saved.on && !saved.before) req.flash('success', 'Wartungsmodus ist an – Besucher sehen jetzt nur die Wartungsseite.');
@@ -531,6 +548,7 @@ function createApp(config, deps = {}) {
       newValues: newValues || { requester: req.user.displayName, quantity: 1 },
       openNew: Boolean(newValues),
       legalMissingContact: legal.hasPlaceholder(await legal.load(store)),
+      myAddress: maintenance.ownEntry(rateLimit.clientAddress(req)),
     }, status);
   }
 

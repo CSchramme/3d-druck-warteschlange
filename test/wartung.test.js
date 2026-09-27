@@ -121,3 +121,50 @@ test('Der Text der Wartungsseite wird sicher angezeigt; leer = Standardtext', as
   assert.match((await env.client().get('/')).text, /wird gerade überarbeitet/);
   assert.doesNotMatch((await env.client().get('/')).text, /Emoji|\p{Extended_Pictographic}/u);
 });
+
+// --- Freigeschaltete Internet-Adressen -------------------------------------------------------
+
+test('Freigeschaltete Adressen kommen ohne Anmeldung rein – IPv4 genau, IPv6 als Heimnetz', async () => {
+  const admin = await (await env.admin()).accept();
+  await switchOn(admin, { adressen: '203.0.113.7\n2001:db8:1:2::/64' });
+
+  const me = await env.client({ 'x-forwarded-for': '203.0.113.7' }).accept();
+  const page = await me.get('/warteschlange');
+  assert.equal(page.status, 200);
+  assert.match(page.text, /weil deine Internet-Adresse freigeschaltet ist/);
+  assert.doesNotMatch(page.text, /Ausschalten/, 'ohne Anmeldung kein Ausschalten-Knopf');
+  assert.equal((await me.submit({ title: 'Test während der Wartung' })).status, 303);
+  assert.equal((await me.get('/admin')).location, '/admin/login', 'Admin-Bereich braucht trotzdem die Anmeldung');
+
+  assert.equal((await env.client({ 'x-forwarded-for': '2001:db8:1:2:abcd::99' }).get('/')).status, 200);
+  for (const other of ['203.0.113.8', '2001:db8:1:3::1', '198.51.100.1, 203.0.113.9']) {
+    assert.equal((await env.client({ 'x-forwarded-for': other }).get('/')).status, 503, other);
+  }
+  // Vorne eingetragene (gefälschte) Adresse hilft nicht – es zählt die, die der Server anhängt.
+  assert.equal((await env.client({ 'x-forwarded-for': '203.0.113.7, 198.51.100.1' }).get('/')).status, 503);
+});
+
+test('„Meine Adresse hinzufügen“ und Schutz vor zu offenen Einträgen', async () => {
+  const admin = await (await env.admin()).accept();
+  const phone = await env.client({ 'x-forwarded-for': '2001:db8:aa:bb:1234:5678:9abc:def0' }).login();
+  const card = (await phone.get('/admin')).text;
+  assert.match(card, /Deine Adresse gerade: <code>2001:db8:aa:bb::\/64<\/code>/);
+
+  await phone.post('/admin/wartung', { an: 'ja', adressen: '203.0.113.7', meine_adresse: 'ja' });
+  assert.deepEqual((await maintenance.load(env.store)).addresses, ['203.0.113.7', '2001:db8:aa:bb::/64']);
+
+  // Adressen des Servers selbst oder riesige Bereiche würden alle reinlassen – abgelehnt.
+  const res = await admin.post('/admin/wartung', {
+    an: 'ja', adressen: '127.0.0.1\n10.0.0.0/8\n0.0.0.0/0\nquatsch\n198.51.100.0/24',
+  });
+  assert.equal(res.status, 303);
+  assert.deepEqual((await maintenance.load(env.store)).addresses, ['198.51.100.0/24']);
+  assert.match((await admin.get('/admin')).text, /Nicht übernommen: 127\.0\.0\.1, 10\.0\.0\.0\/8, 0\.0\.0\.0\/0, quatsch/);
+
+  // Kommt die eigene Adresse beim Server nicht an (hier: nur 127.0.0.1), geht „hinzufügen“ nicht.
+  assert.match((await admin.get('/admin')).text, /Deine Internet-Adresse kommt beim Server nicht an/);
+  await admin.post('/admin/wartung', { an: 'ja', adressen: '', meine_adresse: 'ja' });
+  assert.deepEqual((await maintenance.load(env.store)).addresses, []);
+  assert.match((await admin.get('/admin')).text, /Freischalten per Adresse geht deshalb leider nicht/);
+  assert.equal((await env.client().get('/')).status, 503, 'niemand kommt über 127.0.0.1 rein');
+});
