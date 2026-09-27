@@ -103,8 +103,8 @@ async function main() {
   console.log('');
   if (!process.env.DB_NAME && !process.env.DB_USER && !fs.existsSync(path.join(ROOT, '.env'))) {
     console.log('Hinweis: Falls du die Einstellungen in Plesk eingetragen hast und sie hier trotzdem fehlen,');
-    console.log('gibt Plesk sie npm-Befehlen nicht mit. Dann lege zusätzlich eine Datei .env im App-Ordner an');
-    console.log('(Vorlage: .env.example).\n');
+    console.log('gibt Plesk sie npm-Befehlen nicht mit. Dann trag sie zusätzlich mit dem npm-Befehl');
+    console.log('„einstellen“ ein, z. B.:  einstellen DB_NAME=… DB_USER=… DB_PASSWORD=…\n');
   }
   console.log(problems ? `❌ ${problems} Problem(e) gefunden – siehe oben.` : '✅ Alles in Ordnung.');
   process.exitCode = problems ? 1 : 0;
