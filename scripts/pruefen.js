@@ -9,6 +9,8 @@ const fs = require('fs');
 const path = require('path');
 
 const { loadConfig } = require('../src/config');
+const { createDiscordApi, explainError, inviteUrl } = require('../src/discord-api');
+const discordBot = require('../src/discord-bot');
 const { createStorage, databaseHint } = require('../src/storage');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -30,6 +32,60 @@ async function checkDiscord(url) {
     warn(`Discord nicht erreichbar (${err.message}).`);
   }
   return false;
+}
+
+/**
+ * Bot prüfen – nur lesen, es wird nichts gepostet. Nur die eigenen Symbole werden
+ * (einmalig) hochgeladen, wenn store übergeben wird.
+ */
+async function checkBot(config, store) {
+  const api = createDiscordApi(config.discordBotToken);
+  const invite = inviteUrl(api.applicationId);
+  let problems = 0;
+  try {
+    const me = await api.request('GET', '/users/@me');
+    ok(`Discord-Bot angemeldet: „${me.username}“`);
+    const guilds = await api.request('GET', '/users/@me/guilds');
+    if (guilds.length) {
+      ok(`Bot ist im Server: ${guilds.map((guild) => `„${guild.name}“`).join(', ')}`);
+    } else {
+      bad(`Der Bot ist noch in keinem Server. Einladen (Link im Browser öffnen): ${invite}`);
+      return problems + 1;
+    }
+
+    const state = store ? await store.readState('discord') : {};
+    const { board, requests } = await discordBot.channels(api, config, state);
+    if (!board) {
+      bad('Kein Kanal eingestellt. Nimm eine Kanal-ID von hier und trag sie ein mit: einstellen DISCORD_CHANNEL_ID=<ID>');
+      for (const guild of guilds) {
+        const list = await api.request('GET', `/guilds/${guild.id}/channels`).catch(() => []);
+        list.filter((channel) => channel.type === 0 || channel.type === 5)
+          .forEach((channel) => console.log(`       #${channel.name}  →  ${channel.id}`));
+      }
+      problems++;
+    }
+    for (const [label, id] of [['Warteschlange', board], ['Neue Anfragen', requests !== board ? requests : null]]) {
+      if (!id) continue;
+      try {
+        const channel = await api.request('GET', `/channels/${id}`);
+        ok(`${label}: Kanal #${channel.name}`);
+      } catch (err) {
+        bad(`${label}: ${explainError(err, api.applicationId)}`);
+        problems++;
+      }
+    }
+
+    if (store) {
+      await discordBot.ensureEmojis(store, api, { budgetMs: 30_000, force: true });
+      const emojis = await discordBot.emojiStatus(store, api);
+      if (emojis.uploaded === emojis.total) ok(`Eigene Symbole: alle ${emojis.total} bereit`);
+      else warn(`Eigene Symbole: ${emojis.uploaded} von ${emojis.total} bereit${emojis.error ? ` – ${emojis.error}` : ''}`);
+    }
+  } catch (err) {
+    bad(explainError(err, api.applicationId));
+    problems++;
+  }
+  return problems;
 }
 
 async function main() {
@@ -56,12 +112,14 @@ async function main() {
   } else {
     warn('Keine Datenbank eingestellt (DB_NAME/DB_USER fehlen) – die App speichert in Dateien im Ordner data/.');
   }
-  if (config.discordWebhookUrl) {
+  if (config.discordBotToken) {
+    ok('Discord: Bot (Prüfung weiter unten)');
+  } else if (config.discordWebhookUrl) {
     if (!(await checkDiscord(config.discordWebhookUrl))) problems++;
+    if (config.discordRequestsWebhookUrl && !(await checkDiscord(config.discordRequestsWebhookUrl))) problems++;
   } else {
-    warn('DISCORD_WEBHOOK_URL fehlt – es gehen keine Discord-Nachrichten raus.');
+    warn('Weder DISCORD_BOT_TOKEN noch DISCORD_WEBHOOK_URL – es gehen keine Discord-Nachrichten raus.');
   }
-  if (config.discordRequestsWebhookUrl && !(await checkDiscord(config.discordRequestsWebhookUrl))) problems++;
   if (config.publicUrl) ok(`PUBLIC_URL: ${config.publicUrl}`);
   else warn('PUBLIC_URL fehlt – in Discord gibt es dann keinen Direktlink zur Freigabe.');
 
@@ -92,6 +150,11 @@ async function main() {
         + '(oder: npm run passwort <benutzername>).');
     } else {
       warn('Noch kein Konto und kein ADMIN_PASSWORD – lege eins an mit: npm run passwort <benutzername>');
+    }
+
+    if (config.discordBotToken) {
+      console.log('\nDiscord-Bot:');
+      problems += await checkBot(config, store);
     }
   } catch (err) {
     bad(`${databaseHint(err)} (${err.code || err.message})`);

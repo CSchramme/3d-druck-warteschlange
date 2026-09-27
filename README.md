@@ -28,10 +28,11 @@ neue Anfragen, Warteschlange, Archiv – liegen in einer **MariaDB/MySQL-Datenba
 3. **Warteschlange** – Freigegebene Aufträge werden hinten angehängt. Mit
    ⤒ ↑ ↓ ⤓ änderst du die Reihenfolge, mit **✓ Gedruckt** ist ein Auftrag fertig.
    Eigene Aufträge kannst du direkt in die Warteschlange legen.
-4. **Discord** – Nach jeder Änderung wird geprüft, ob sich die obersten 3
-   geändert haben (andere Aufträge, andere Reihenfolge oder geänderte Details).
-   Nur dann kommt eine neue Nachricht. Rutscht z. B. ein neuer Auftrag auf
-   Platz 5, bleibt Discord ruhig.
+4. **Discord** – Mit Bot steht die Warteschlange als **eine** Nachricht im Kanal
+   (die obersten 3 groß, dahinter die nächsten), die sich bei jeder Änderung
+   selbst aktualisiert. Anfrage-Nachrichten zeigen nach dem Freigeben, Ablehnen
+   oder Drucken den neuen Stand. Ohne Bot (nur Webhook) kommt eine neue
+   Nachricht, sobald sich an den obersten 3 etwas ändert.
 5. **Konten** – Jeder, der im Admin-Bereich helfen soll, bekommt ein eigenes Konto
    (Menü **Konten**). Passwörter werden nur verschlüsselt (als scrypt-Hash)
    gespeichert; nach 5 falschen Versuchen ist ein Konto 5 Minuten gesperrt.
@@ -85,15 +86,37 @@ alles, was du je gedruckt hast:
 
 ## Einrichten in Plesk
 
-### 1. Discord-Webhook anlegen
+### 1. Discord-Bot anlegen
 
-In Discord: Rechtsklick auf den Kanal → **Kanal bearbeiten** → **Integrationen**
-→ **Webhooks** → **Neuer Webhook** → **Webhook-URL kopieren**.
+Mit Bot sieht es in Discord am besten aus: **eine** Warteschlangen-Nachricht, die
+sich bei jeder Änderung selbst aktualisiert, Anfragen, die nach dem Freigeben
+„Freigegeben“ bzw. „Abgelehnt“ zeigen, farbige Kästen, Vorschaubilder und dieselben
+Symbole wie auf der Seite.
 
-Die URL ist wie ein Passwort: Wer sie hat, kann in deinen Kanal schreiben. Sie
-gehört **nie** in den Code oder auf GitHub, sondern nur in die Einstellungen
-unten. Falls sie doch mal öffentlich wird: Webhook in Discord löschen und neu
-anlegen.
+1. <https://discord.com/developers/applications> → **New Application**, Namen
+   vergeben (z. B. „3D-Druck“), unter **General Information** ein Bild setzen
+   (z. B. `public/icon-512.png`).
+2. Links **Bot** → **Reset Token** → Token kopieren. Der Token ist wie ein
+   Passwort: nie in den Code oder auf GitHub, nur in die Einstellungen unten.
+   Falls er doch mal öffentlich wird: einfach nochmal **Reset Token**.
+3. Bot in deinen Server holen – diesen Link öffnen und `DEINE_ANWENDUNGS_ID`
+   durch die **Application ID** (General Information) ersetzen:
+   `https://discord.com/oauth2/authorize?client_id=DEINE_ANWENDUNGS_ID&permissions=347136&integration_type=0&scope=bot`
+   (Rechte: Kanal sehen, Nachrichten senden, Links einbetten, Verlauf lesen,
+   externe Emojis). `npm run pruefen` zeigt den fertigen Link auch an.
+4. Kanal-ID kopieren: Discord → Einstellungen → Erweitert → **Entwicklermodus**,
+   dann Rechtsklick auf den Kanal → **Kanal-ID kopieren**. (Hast du schon eine
+   `DISCORD_WEBHOOK_URL` eingetragen, kannst du dir das sparen – der Bot nimmt
+   dann den Kanal dieses Webhooks.)
+
+Die eigenen Symbole lädt die App beim ersten Start selbst zum Bot hoch. Der Bot
+steht in der Mitgliederliste als „offline“ – das ist normal, weil er keine
+Dauerverbindung braucht; schreiben und bearbeiten kann er trotzdem.
+
+**Ohne Bot** geht es auch per Webhook (dann ist jede Änderung eine neue
+Nachricht): Rechtsklick auf den Kanal → **Kanal bearbeiten** → **Integrationen** →
+**Webhooks** → **Neuer Webhook** → **Webhook-URL kopieren** und als
+`DISCORD_WEBHOOK_URL` eintragen.
 
 ### 2. Domain vorbereiten
 
@@ -137,11 +160,13 @@ Im selben Node.js-Fenster unter **Benutzerdefinierte Umgebungsvariablen**
 | Variable | Wert |
 | --- | --- |
 | `ADMIN_PASSWORD` | Einrichtungs-Code für dein erstes Konto (**Pflicht** beim ersten Start, danach nicht mehr nötig) |
-| `DISCORD_WEBHOOK_URL` | die Webhook-URL aus Schritt 1 |
-| `PUBLIC_URL` | z. B. `https://druck.deine-domain.de` (empfohlen: dann kommst du aus Discord mit einem Klick zur Freigabe) |
+| `DISCORD_BOT_TOKEN` | der Bot-Token aus Schritt 1 |
+| `DISCORD_CHANNEL_ID` | die Kanal-ID aus Schritt 1 (oder stattdessen `DISCORD_WEBHOOK_URL`) |
+| `PUBLIC_URL` | z. B. `https://druck.deine-domain.de` (empfohlen: dann gibt es in Discord Vorschaubilder und Knöpfe direkt zur Freigabe) |
 | `COOKIE_SECURE` | `true`, sobald HTTPS aktiv ist |
 | `DISCORD_PING_USER_ID` | optional: deine Discord-Benutzer-ID – dann wirst du bei neuen Anfragen angepingt und bekommst sicher eine Push-Nachricht |
-| `DISCORD_WEBHOOK_URL_ANFRAGEN` | optional: eigener Webhook, falls neue Anfragen in einen anderen Kanal sollen |
+| `DISCORD_CHANNEL_ID_ANFRAGEN` | optional: eigener Kanal für neue Anfragen |
+| `DISCORD_WEBHOOK_URL` | nur ohne Bot: Webhook-URL (siehe Schritt 1) |
 | `DB_HOST` | `localhost` |
 | `DB_PORT` | `3306` |
 | `DB_NAME` | Name der Datenbank (Plesk → **Datenbanken**) |
@@ -175,8 +200,9 @@ brauchst du `ADMIN_PASSWORD` nicht mehr und kannst es in Plesk löschen.
 Statt der Ersteinrichtung im Browser geht auch der npm-Befehl `passwort tim` –
 er legt das Konto `tim` an und zeigt dir das Passwort.
 
-Zum Test unten bei „Discord“ auf **Jetzt an Discord senden** klicken – dann siehst
-du sofort, ob der Webhook funktioniert.
+Zum Test unten bei „Discord“ auf **Warteschlange neu posten** (mit Bot) bzw.
+**Jetzt an Discord senden** (mit Webhook) klicken – dann siehst du sofort, ob es
+funktioniert. Mit Bot sagt dir `npm run pruefen` außerdem genau, was noch fehlt.
 
 ### Updates
 
@@ -196,7 +222,7 @@ Befehl eintragen, z. B. `pruefen`, und ausführen. Die Ausgabe zeigt Plesk direk
 | Befehl | Was er macht |
 | --- | --- |
 | `aktualisieren` | Neueste Version von GitHub holen und einspielen, Pakete installieren, App neu starten. Mit `aktualisieren main` von einem anderen Branch. |
-| `pruefen` | Prüft alles: Node-Version, Datenbank-Verbindung, Discord-Webhook, Konten, Anzahl der Aufträge – und sagt, was fehlt. Zeigt keine Passwörter. |
+| `pruefen` | Prüft alles: Node-Version, Datenbank-Verbindung, Discord (Bot: angemeldet?, im Server?, Kanal?, Symbole), Konten, Anzahl der Aufträge – und sagt, was fehlt. Zeigt keine Passwörter. |
 | `passwort tim` | Setzt für das Konto `tim` ein neues, zufälliges Passwort (und hebt eine Sperre auf) – oder legt das Konto an, falls es das noch nicht gibt: `passwort tim Tim Schmidt`. Das Passwort steht in der Ausgabe; danach unter **Konten** ändern. |
 | `einstellen` | Zeigt die Werte aus der Datei `.env` (Passwörter verdeckt). Mit `einstellen DB_NAME=abc DB_USER=abc` trägst du Werte ein, mit `einstellen NAME=` entfernst du einen. Nur nötig, falls Plesk die Umgebungsvariablen an npm-Befehle nicht weitergibt (`pruefen` sagt dir das). |
 
@@ -230,9 +256,14 @@ ADMIN_PASSWORD=… DISCORD_WEBHOOK_URL=… npm start   # läuft auf Port 3000 (o
   Berechtigung **„Links einbetten“** für `@everyone` (Webhooks nutzen deren
   Rechte), oder in deiner Discord-App ist unter Einstellungen → Chat
   **„Eingebettete Inhalte und Link-Vorschauen anzeigen“** ausgeschaltet.
+- **Bot schreibt nichts?** `npm run pruefen` zeigt, ob der Token stimmt, ob der
+  Bot im Server ist (sonst mit Einladungslink) und ob er den Kanal sieht. Im Kanal
+  braucht er „Nachrichten senden“ und „Links einbetten“.
+- **Warteschlangen-Nachricht weit oben?** Mit **Warteschlange neu posten** wird die
+  alte gelöscht und unten neu geschickt. Löschst du sie in Discord von Hand, kommt
+  beim nächsten Mal automatisch eine neue.
 - **Discord nicht erreichbar?** Dann steht im Admin-Bereich unter „Discord“ der
-  Fehler. Beim nächsten Klick wird automatisch neu versucht, oder du drückst
-  **Jetzt an Discord senden**.
+  Fehler. Beim nächsten Klick wird automatisch neu versucht.
 - In Discord werden keine `@everyone`-/`@here`-Erwähnungen aus Namen oder
   Notizen ausgelöst.
 

@@ -12,7 +12,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const ENV_FILE = path.join(ROOT, '.env');
-const SECRET = /PASSWORD|SECRET|WEBHOOK/;
+const SECRET = /PASSWORD|SECRET|WEBHOOK|TOKEN/;
 
 function quote(value) {
   return /^[\w@%+=:,./~-]*$/.test(value) ? value : `"${value.replace(/"/g, '\\"')}"`;

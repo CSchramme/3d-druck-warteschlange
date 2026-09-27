@@ -83,7 +83,7 @@ class Client {
 }
 
 /** Startet die App auf einem freien Port mit leerem Datenordner. */
-async function startApp(overrides = {}, { store: givenStore } = {}) {
+async function startApp(overrides = {}, { store: givenStore, discordApi } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'druck-test-'));
   const config = {
     dataDir,
@@ -119,6 +119,7 @@ async function startApp(overrides = {}, { store: givenStore } = {}) {
   const app = createApp(config, {
     store,
     postWebhook: (url, payload) => env.post(url, payload),
+    discordApi,
     onBackgroundTask: (promise) => background.push(promise),
   });
   const server = await new Promise((resolve) => {
@@ -127,6 +128,7 @@ async function startApp(overrides = {}, { store: givenStore } = {}) {
   const base = `http://127.0.0.1:${server.address().port}`;
 
   return Object.assign(env, {
+    app,
     store,
     dataDir,
     client: () => new Client(base),

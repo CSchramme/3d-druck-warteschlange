@@ -1,10 +1,13 @@
 'use strict';
 
-// Discord-Nachrichten per Webhook:
+// Discord-Nachrichten – mit Bot (DISCORD_BOT_TOKEN, siehe discord-bot.js: Nachrichten
+// werden bearbeitet statt neu geschickt) oder einfach per Webhook:
 //  - die obersten Aufträge der Warteschlange – aber nur, wenn sich an ihnen
 //    tatsächlich etwas geändert hat,
 //  - jede neue Anfrage, die auf deine Freigabe wartet.
 
+const bot = require('./discord-bot');
+const { createDiscordApi, inviteUrl } = require('./discord-api');
 const jobs = require('./jobs');
 const { isMakerworld } = require('./makerworld');
 
@@ -173,12 +176,20 @@ function rememberError(store, err) {
   });
 }
 
+/** Der Bot-Zugang, falls ein Bot-Token eingestellt ist (api: Ersatz für Tests). */
+function botApi(config, api) {
+  if (!config.discordBotToken) return null;
+  return api || createDiscordApi(config.discordBotToken);
+}
+
 /**
  * Schickt die obersten Aufträge an Discord, falls sie sich seit dem letzten
  * Versand geändert haben (oder force). Ergebnis: 'unchanged', 'disabled',
- * 'sent' oder 'error'.
+ * 'sent', 'updated' (nur Bot: Nachricht bearbeitet) oder 'error'.
  */
-function sync(store, config, { force = false, post = postWebhook } = {}) {
+function sync(store, config, { force = false, post = postWebhook, api = null } = {}) {
+  const discordBot = botApi(config, api);
+  if (discordBot) return bot.sync(store, config, { api: discordBot, force });
   return store.withLock(STATE, async () => {
     const top = jobs.queue(await store.readData(), config.discordTopN);
     const current = snapshot(top);
@@ -206,7 +217,9 @@ function sync(store, config, { force = false, post = postWebhook } = {}) {
 }
 
 /** Meldet eine neue Anfrage. Ergebnis: 'disabled', 'sent' oder 'error'. */
-async function notifyNewRequest(store, config, job, { post = postWebhook } = {}) {
+async function notifyNewRequest(store, config, job, { post = postWebhook, api = null } = {}) {
+  const discordBot = botApi(config, api);
+  if (discordBot) return bot.notifyNewRequest(store, config, job, { api: discordBot });
   const webhook = config.discordRequestsWebhookUrl || config.discordWebhookUrl;
   if (!webhook) return 'disabled';
   const payload = buildRequestPayload(job, {
@@ -223,10 +236,34 @@ async function notifyNewRequest(store, config, job, { post = postWebhook } = {})
   }
 }
 
-async function status(store, config) {
+/** Beim Start der App: mit Bot gleich die Warteschlangen-Nachricht anlegen bzw. auffrischen. */
+async function startup(store, config, { api = null } = {}) {
+  const discordBot = botApi(config, api);
+  return discordBot ? bot.startup(store, config, { api: discordBot }) : 'disabled';
+}
+
+async function status(store, config, { api = null } = {}) {
   const state = await store.readState(STATE);
+  const discordBot = botApi(config, api);
+  if (discordBot) {
+    return {
+      configured: true,
+      bot: true,
+      separateRequestsChannel: Boolean(config.discordRequestsChannelId || config.discordRequestsWebhookUrl),
+      pingsUser: /^\d{15,25}$/.test(config.discordPingUserId || ''),
+      hasPublicUrl: Boolean(config.publicUrl),
+      topN: config.discordTopN,
+      lastSentAt: state.lastSentAt || null,
+      error: state.lastError || null,
+      boardLive: Boolean(state.board),
+      tracked: Object.keys(state.requests || {}).length,
+      emojis: await bot.emojiStatus(store, discordBot),
+      inviteUrl: inviteUrl(discordBot.applicationId),
+    };
+  }
   return {
     configured: Boolean(config.discordWebhookUrl),
+    bot: false,
     separateRequestsChannel: Boolean(config.discordRequestsWebhookUrl),
     pingsUser: /^\d{15,25}$/.test(config.discordPingUserId || ''),
     hasPublicUrl: Boolean(config.publicUrl),
@@ -237,5 +274,5 @@ async function status(store, config) {
 }
 
 module.exports = {
-  snapshot, buildPayload, buildRequestPayload, postWebhook, sync, notifyNewRequest, status,
+  snapshot, buildPayload, buildRequestPayload, postWebhook, sync, notifyNewRequest, startup, status,
 };

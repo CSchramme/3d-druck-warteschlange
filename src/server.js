@@ -194,11 +194,19 @@ function createApp(config, deps = {}) {
     return (Date.now() - Number(time)) / 1000;
   }
 
+  const discordDeps = { post: deps.postWebhook, api: deps.discordApi };
+
   async function syncDiscord(req, force = false) {
-    const result = await discord.sync(store, config, { force, post: deps.postWebhook });
-    if (result === 'sent') req.flash('info', 'Die aktuellen Top-Aufträge wurden an Discord geschickt.');
-    else if (result === 'error') req.flash('error', 'Discord-Versand fehlgeschlagen – Details stehen unten bei „Discord“.');
-    else if (force && result === 'disabled') req.flash('error', 'Es ist keine DISCORD_WEBHOOK_URL eingestellt.');
+    const result = await discord.sync(store, config, { ...discordDeps, force });
+    // Mit Bot wird die Nachricht still bearbeitet ('updated') – dazu keine Meldung.
+    if (result === 'sent') {
+      req.flash('info', config.discordBotToken ? 'Die Warteschlange steht jetzt neu in Discord.'
+        : 'Die aktuellen Top-Aufträge wurden an Discord geschickt.');
+    } else if (result === 'error') {
+      req.flash('error', 'Discord-Versand fehlgeschlagen – Details stehen unten bei „Discord“.');
+    } else if (force && result === 'disabled') {
+      req.flash('error', 'Discord ist noch nicht eingerichtet (DISCORD_BOT_TOKEN oder DISCORD_WEBHOOK_URL fehlt).');
+    }
   }
 
   // --- Öffentlich ---------------------------------------------------------------
@@ -252,7 +260,7 @@ function createApp(config, deps = {}) {
     res.redirect(303, '/');
 
     // Dir per Discord Bescheid geben – im Hintergrund, damit niemand warten muss.
-    const notified = discord.notifyNewRequest(store, config, job, { post: deps.postWebhook })
+    const notified = discord.notifyNewRequest(store, config, job, discordDeps)
       .catch((err) => console.error('Discord-Meldung für neue Anfrage fehlgeschlagen:', err));
     if (deps.onBackgroundTask) deps.onBackgroundTask(notified);
   });
@@ -413,7 +421,7 @@ function createApp(config, deps = {}) {
       pending: jobs.pending(data),
       queue: jobs.queue(data),
       finished: jobs.finished(data),
-      discord: await discord.status(store, config),
+      discord: await discord.status(store, config, discordDeps),
       topN: config.discordTopN,
       newValues: newValues || { requester: req.user.displayName, quantity: 1 },
       openNew: Boolean(newValues),

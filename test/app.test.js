@@ -284,7 +284,7 @@ test('Ohne Webhook wird nichts gesendet', async () => {
   await env.settle();
   assert.deepEqual(env.sent, []);
   assert.deepEqual(env.requests, []);
-  assert.match((await admin.get('/admin')).text, /noch kein Discord-Webhook/);
+  assert.match((await admin.get('/admin')).text, /Discord ist noch nicht eingerichtet/);
 });
 
 // --- Design ---------------------------------------------------------------------------

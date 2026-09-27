@@ -71,6 +71,12 @@ function loadDbConfig(env) {
   };
 }
 
+/** Discord-ID (nur Ziffern) – alles andere wird ignoriert. */
+function snowflake(value) {
+  const id = String(value || '').trim();
+  return /^\d{15,25}$/.test(id) ? id : '';
+}
+
 function loadConfig(overrides = {}) {
   loadEnvFile(path.join(ROOT, '.env'));
   const env = process.env;
@@ -81,6 +87,9 @@ function loadConfig(overrides = {}) {
     minFormSeconds: Number.isFinite(parseFloat(env.MIN_FORM_SECONDS)) ? parseFloat(env.MIN_FORM_SECONDS) : 2,
     maxPending: parseInt(env.MAX_PENDING, 10) || 50,
     loginDelayMs: 1000,
+    discordBotToken: (env.DISCORD_BOT_TOKEN || '').trim(),
+    discordChannelId: snowflake(env.DISCORD_CHANNEL_ID),
+    discordRequestsChannelId: snowflake(env.DISCORD_CHANNEL_ID_ANFRAGEN),
     discordWebhookUrl: (env.DISCORD_WEBHOOK_URL || '').trim(),
     discordRequestsWebhookUrl: (env.DISCORD_WEBHOOK_URL_ANFRAGEN || '').trim(),
     discordPingUserId: (env.DISCORD_PING_USER_ID || '').trim(),

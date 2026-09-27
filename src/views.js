@@ -634,24 +634,42 @@ ${pageHead('Aufträge', {
 </section>
 
 <section class="card" id="discord">
-  ${sectionHead('Discord', { iconName: 'message' })}
-  ${discord.configured ? html`
+  ${sectionHead('Discord', { iconName: 'message', extra: discord.configured
+    ? html`<span class="status-pill ${discordOk ? 'is-ok' : 'is-warn'}">${discord.bot ? 'Bot' : 'Webhook'}</span>` : '' })}
+  ${discord.configured && discord.bot ? html`
+  <dl class="facts">
+    <dt>Warteschlange</dt><dd>eine Nachricht mit den obersten ${discord.topN} Aufträgen – wird bei jeder Änderung
+      bearbeitet${discord.boardLive ? '' : ' (wird beim nächsten Mal angelegt)'}</dd>
+    <dt>Neue Anfragen</dt><dd>werden sofort gemeldet${discord.separateRequestsChannel ? ' (eigener Kanal)' : ''}${
+      discord.pingsUser ? ', mit Ping an dich' : ''}; nach Freigeben, Ablehnen oder Drucken wird die Nachricht angepasst</dd>
+    <dt>Symbole</dt><dd>${discord.emojis.uploaded === discord.emojis.total ? 'alle hochgeladen'
+      : `${discord.emojis.uploaded} von ${discord.emojis.total} hochgeladen – bis dahin normale Emojis`}${
+      discord.emojis.error ? html` <span class="error-text">(${discord.emojis.error})</span>` : ''}</dd>
+    <dt>Zuletzt gesendet</dt><dd>${discord.lastSentAt ? ctx.date(discord.lastSentAt) : 'noch nie'}</dd>
+    ${discord.error ? html`<dt>Letzter Fehler</dt><dd class="error-text">${ctx.date(discord.error.at)} – ${discord.error.message}</dd>` : ''}
+  </dl>` : discord.configured ? html`
   <dl class="facts">
     <dt>Warteschlange</dt><dd>die obersten ${discord.topN} Aufträge, sobald sich an ihnen etwas ändert</dd>
     <dt>Neue Anfragen</dt><dd>werden sofort gemeldet${discord.separateRequestsChannel ? ' (eigener Kanal)' : ''}${
       discord.pingsUser ? ', mit Ping an dich' : ''}</dd>
     <dt>Zuletzt gesendet</dt><dd>${discord.lastSentAt ? ctx.date(discord.lastSentAt) : 'noch nie'}</dd>
     ${discord.error ? html`<dt>Letzter Fehler</dt><dd class="error-text">${ctx.date(discord.error.at)} – ${discord.error.message}</dd>` : ''}
-  </dl>
+  </dl>` : ''}
+  ${discord.configured ? html`
   ${discord.hasPublicUrl ? '' : html`<p class="note note-warn">${icon('info', { size: 16 })}<span>Tipp: Trag <code>PUBLIC_URL</code> ein
-    (z. B. <code>https://druck.deine-domain.de</code>) – dann kommst du aus Discord mit einem Klick direkt zur Freigabe.</span></p>`}
-  <form method="post" action="/admin/discord/senden">
-    <input type="hidden" name="csrf_token" value="${ctx.csrf}">
-    <button class="btn" type="submit">${icon('send', { size: 18 })}<span>Jetzt an Discord senden</span></button>
-  </form>` : html`
-  <p>Es ist noch kein Discord-Webhook eingerichtet. Leg in Discord unter
-    <em>Kanal bearbeiten → Integrationen → Webhooks</em> einen Webhook an und trag die URL als
-    <code>DISCORD_WEBHOOK_URL</code> ein.</p>`}
+    (z. B. <code>https://druck.deine-domain.de</code>) – dann gibt es in Discord Vorschaubilder und Knöpfe direkt zur Freigabe.</span></p>`}
+  <div class="actions">
+    <form method="post" action="/admin/discord/senden" class="inline">
+      <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+      <button class="btn" type="submit">${icon(discord.bot ? 'refresh' : 'send', { size: 18 })}<span>${
+        discord.bot ? 'Warteschlange neu posten' : 'Jetzt an Discord senden'}</span></button>
+    </form>
+    ${discord.bot && discord.inviteUrl ? html`<a class="btn btn-ghost" href="${discord.inviteUrl}" target="_blank" rel="noopener noreferrer">${
+      icon('user-plus', { size: 18 })}<span>Bot in Server einladen</span></a>` : ''}
+  </div>` : html`
+  <p>Discord ist noch nicht eingerichtet. Am schönsten mit einem Bot: Trag den Bot-Token als
+    <code>DISCORD_BOT_TOKEN</code> und die Kanal-ID als <code>DISCORD_CHANNEL_ID</code> ein.
+    Einfacher, aber ohne Bearbeiten: eine Webhook-URL als <code>DISCORD_WEBHOOK_URL</code>.</p>`}
 </section>`;
   return layout(ctx, { title: 'Aufträge', body });
 }
