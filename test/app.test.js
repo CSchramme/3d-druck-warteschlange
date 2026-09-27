@@ -286,3 +286,42 @@ test('Ohne Webhook wird nichts gesendet', async () => {
   assert.deepEqual(env.requests, []);
   assert.match((await admin.get('/admin')).text, /noch kein Discord-Webhook/);
 });
+
+// --- Design ---------------------------------------------------------------------------
+
+test('Keine Emojis auf den Seiten – nur Icons', async () => {
+  const admin = await env.admin();
+  await admin.submit({ title: 'Vase', makerworld_url: 'https://makerworld.com/de/models/1', color: 'Blau', notes: 'hoch' });
+  await admin.submit({ title: 'Knopf', quantity: '2' });
+  const id = await env.idOf('Vase');
+  await admin.post(`/admin/auftrag/${id}/approve`);
+  await admin.post(`/admin/archiv/eintragen`, { requester: 'Ich', title: 'Benchy', printed_at: '2024-05-17' });
+  const pages = ['/', '/warteschlange', '/admin', '/admin/archiv', '/admin/verlauf', '/admin/nutzer',
+    `/admin/auftrag/${id}/bearbeiten`, '/admin/archiv.html'];
+  for (const url of pages) {
+    const page = await admin.get(url);
+    assert.equal(page.status, 200, url);
+    const found = page.text.match(/\p{Extended_Pictographic}/gu);
+    assert.equal(found, null, `${url} enthält Emojis: ${found && found.join(' ')}`);
+    if (url !== '/admin/archiv.html') assert.match(page.text, /<svg class="icon"/, url);
+  }
+  for (const url of ['/', '/warteschlange', '/admin/login', '/gibtsnicht']) {
+    const found = (await env.client().get(url)).text.match(/\p{Extended_Pictographic}/gu);
+    assert.equal(found, null, `${url} enthält Emojis: ${found && found.join(' ')}`);
+  }
+});
+
+test('Öffentliche Warteschlangen-Seite und Navigation', async () => {
+  const admin = await env.admin();
+  await approveAll(admin, 'A', 'B');
+  await env.client().submit({ title: 'Wartet noch' });
+
+  const page = (await env.client().get('/warteschlange')).text;
+  assert.match(page, /<h3 class="job-title">A<\/h3>/);
+  assert.doesNotMatch(page, /Wartet noch/);
+  assert.match(page, /class="tab is-active" href="\/warteschlange" aria-current="page"/);
+
+  const dashboard = (await admin.get('/admin')).text;
+  assert.match(dashboard, /class="tab is-active" href="\/admin"/);
+  assert.match(dashboard, /<span class="nav-badge" aria-label="1 offen">1<\/span>/);
+});

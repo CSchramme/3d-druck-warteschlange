@@ -38,7 +38,7 @@ async function mapLimit(items, limit, fn) {
 const ACTIONS = {
   approve: { run: jobs.enqueue, message: '„%s“ ist freigegeben und steht jetzt auf Platz %p der Warteschlange.', allowed: ['pending'], log: 'freigegeben' },
   reject: { run: jobs.reject, message: '„%s“ wurde abgelehnt.', allowed: ['pending', 'queued'], log: 'abgelehnt' },
-  done: { run: jobs.markDone, message: '„%s“ ist als gedruckt markiert. 🎉', allowed: ['queued'], log: 'gedruckt' },
+  done: { run: jobs.markDone, message: '„%s“ ist als gedruckt markiert.', allowed: ['queued'], log: 'gedruckt' },
   restore: { run: jobs.enqueue, message: '„%s“ steht wieder in der Warteschlange (Platz %p).', allowed: ['done', 'rejected'], log: 'zurueckgeholt' },
   unapprove: { run: jobs.backToPending, message: '„%s“ wartet wieder auf Freigabe.', allowed: ['queued'], log: 'freigabe_zurueck' },
   up: { run: (d, id) => jobs.move(d, id, 'up'), allowed: ['queued'] },
@@ -88,6 +88,7 @@ function createApp(config, deps = {}) {
       delete req.session.flash;
       const ctx = {
         csrf: csrfToken(req), isAdmin: Boolean(req.user), user: users.publicUser(req.user), flashes, date, day,
+        path: req.path, pendingCount: req.pendingCount || 0,
       };
       res.status(status).type('html').send(String(views[view](ctx, data)));
     };
@@ -130,6 +131,8 @@ function createApp(config, deps = {}) {
       if (user && user.sessionVersion === v) req.user = user;
       else req.session = {};
     }
+    // Zähler für die Navigation: wie viele Anfragen warten auf Freigabe?
+    if (req.user && req.method === 'GET') req.pendingCount = jobs.pending(await store.readData()).length;
     next();
   });
 
@@ -196,6 +199,15 @@ function createApp(config, deps = {}) {
   }
 
   app.get('/', (req, res) => renderIndex(req, res));
+
+  app.get('/warteschlange', async (req, res) => {
+    const data = await store.readData();
+    res.page('publicQueue', {
+      queue: jobs.queue(data),
+      done: jobs.finished(data, 10).filter((job) => job.status === 'done'),
+      topN: config.discordTopN,
+    });
+  });
 
   app.post('/auftrag', async (req, res) => {
     // Unsichtbares Feld: Bots füllen es aus, Menschen nicht.

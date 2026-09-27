@@ -64,16 +64,9 @@
   sort.addEventListener('change', apply);
   document.getElementById('filter').addEventListener('submit', function (e) { e.preventDefault(); });
 
-  // Offline laden die Vorschaubilder nicht – dann den Platzhalter zeigen.
-  Array.prototype.forEach.call(document.querySelectorAll('img.thumb'), function (img) {
-    function fallback() {
-      var box = document.createElement('div');
-      box.className = 'thumb thumb-empty';
-      box.textContent = '🧊';
-      img.replaceWith(box);
-    }
-    if (img.complete && !img.naturalWidth) fallback();
-    else img.addEventListener('error', fallback);
+  // Offline laden die Vorschaubilder nicht – dann bleibt das Platzhalter-Icon darunter sichtbar.
+  Array.prototype.forEach.call(document.querySelectorAll('.thumb img'), function (img) {
+    if (img.complete && !img.naturalWidth) img.remove();
   });
 
   apply();

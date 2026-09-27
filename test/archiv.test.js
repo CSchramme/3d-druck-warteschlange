@@ -123,7 +123,7 @@ test('Import ohne gültige Links zeigt Fehler und behält die Eingaben', async (
   const res = await admin.post('/admin/archiv/import', { links: 'quatsch', requester: 'Leo', printed_at: '2025-01-01' });
   assert.equal(res.status, 400);
   assert.match(res.text, /mindestens einen gültigen Link/);
-  assert.match(res.text, /<details class="add-own" open>\s*<summary>📋/);
+  assert.match(res.text, /<details class="disclosure disclosure-lg" open>\s*<summary>[\s\S]*?Mehrere MakerWorld-Links/);
   assert.equal((await env.data()).jobs.length, 0);
 });
 

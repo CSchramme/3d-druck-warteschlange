@@ -4,15 +4,49 @@ const fs = require('fs');
 const path = require('path');
 
 const { html, raw } = require('./html');
+const { icon } = require('./icons');
 const { isMakerworld } = require('./makerworld');
 
 // Für den HTML-Export: Aussehen und Suche werden direkt in die Datei gepackt.
 const EXPORT_CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
 const EXPORT_JS = fs.readFileSync(path.join(__dirname, 'export', 'archiv-export.js'), 'utf8');
 
-// --- Bausteine ---------------------------------------------------------------
+// Kaputte Vorschaubilder entfernen – darunter liegt immer ein Platzhalter-Icon.
+const IMAGE_FALLBACK = `document.addEventListener('error', function (e) {
+  var t = e.target; if (t && t.tagName === 'IMG' && t.closest('.thumb')) t.remove();
+}, true);`;
 
-function layout(ctx, { title, body }) {
+// --- Navigation ----------------------------------------------------------------
+
+const NAV_PUBLIC = [
+  { href: '/', label: 'Einreichen', icon: 'plus-circle', active: (p) => p === '/' || p === '/auftrag' },
+  { href: '/warteschlange', label: 'Warteschlange', icon: 'layers', active: (p) => p === '/warteschlange' },
+  { href: '/admin/login', label: 'Anmelden', icon: 'log-in', active: (p) => p.startsWith('/admin') },
+];
+
+const NAV_ADMIN = [
+  { href: '/admin', label: 'Aufträge', icon: 'inbox', badge: true,
+    active: (p) => p === '/admin' || p.startsWith('/admin/auftrag') || p.startsWith('/admin/discord') },
+  { href: '/admin/archiv', label: 'Archiv', icon: 'archive', active: (p) => p.startsWith('/admin/archiv') },
+  { href: '/admin/verlauf', label: 'Verlauf', icon: 'history', active: (p) => p.startsWith('/admin/verlauf') },
+  { href: '/admin/nutzer', label: 'Konten', icon: 'users', active: (p) => p.startsWith('/admin/nutzer') },
+  { href: '/', label: 'Startseite', icon: 'home', active: (p) => p === '/' || p === '/warteschlange' },
+];
+
+function navItems(ctx, cls) {
+  const items = ctx.isAdmin ? NAV_ADMIN : NAV_PUBLIC;
+  return items.map((item) => {
+    const active = item.active(ctx.path || '');
+    const badge = item.badge && ctx.pendingCount
+      ? html`<span class="nav-badge" aria-label="${ctx.pendingCount} offen">${ctx.pendingCount}</span>` : '';
+    return html`<a class="${cls}${active ? ' is-active' : ''}" href="${item.href}"${active ? html` aria-current="page"` : ''}>
+      <span class="nav-icon">${icon(item.icon, { size: 22 })}${badge}</span><span class="nav-label">${item.label}</span></a>`;
+  });
+}
+
+const FLASH_ICONS = { error: 'alert-circle', success: 'check-circle', info: 'info' };
+
+function layout(ctx, { title, body, scripts = '' }) {
   const { isAdmin, csrf, flashes, user } = ctx;
   // Fehler bleiben stehen; Erfolgsmeldungen erscheinen als Einblendung, die
   // man auch sieht, wenn die Seite zu einem Auftrag weiter unten springt.
@@ -22,140 +56,230 @@ function layout(ctx, { title, body }) {
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f2f4f5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e1012" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="3D-Druck">
   <title>${title ? `${title} – ` : ''}3D-Druck-Warteschlange</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖨️</text></svg>">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/style.css">
+  <script>${raw(IMAGE_FALLBACK)}</script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="wrap topbar-inner">
-      <a class="brand" href="/">🖨️ Druck-Warteschlange</a>
-      <nav>
-        ${isAdmin ? html`
-          <a href="/admin">Admin</a>
-          <a href="/admin/archiv">Archiv</a>
-          <a href="/admin/verlauf">Verlauf</a>
-          <a href="/admin/nutzer">Konten</a>
-          <form method="post" action="/admin/logout" class="inline">
-            <input type="hidden" name="csrf_token" value="${csrf}">
-            <button class="linklike" type="submit" title="Angemeldet als ${user.displayName}">Abmelden</button>
-          </form>` : html`
-          <a href="/#einreichen">Einreichen</a>
-          <a href="/#warteschlange">Warteschlange</a>
-          <a href="/admin">Anmelden</a>`}
-      </nav>
+  <header class="appbar">
+    <div class="wrap appbar-inner">
+      <a class="brand" href="${isAdmin ? '/admin' : '/'}">
+        <span class="brand-mark">${icon('printer', { size: 18 })}</span>
+        <span class="brand-text">3D-Druck</span>
+      </a>
+      <nav class="topnav" aria-label="Hauptmenü">${navItems(ctx, 'topnav-item')}</nav>
+      ${isAdmin ? html`
+      <form method="post" action="/admin/logout" class="appbar-action">
+        <input type="hidden" name="csrf_token" value="${csrf}">
+        <button class="icon-btn" type="submit" title="Abmelden (angemeldet als ${user.displayName})" aria-label="Abmelden">
+          ${icon('log-out')}
+        </button>
+      </form>` : ''}
     </div>
   </header>
-  <main class="wrap">
+
+  <main class="wrap page">
     ${errors.length ? html`<div class="flashes">
-      ${errors.map((f) => html`<div class="flash flash-error">${f.message}</div>`)}
+      ${errors.map((f) => html`<div class="flash flash-error">${icon('alert-circle')}<span>${f.message}</span></div>`)}
     </div>` : ''}
     ${notices.length ? html`<div class="toasts" role="status">
-      ${notices.map((f) => html`<div class="flash toast flash-${f.type}">${f.message}</div>`)}
+      ${notices.map((f) => html`<div class="flash toast flash-${f.type}">${icon(FLASH_ICONS[f.type] || 'info')}<span>${f.message}</span></div>`)}
     </div>` : ''}
     ${body}
   </main>
+
+  <nav class="tabbar" aria-label="Hauptmenü">${navItems(ctx, 'tab')}</nav>
+
   <script>
     document.addEventListener('click', function (e) {
-      if (e.target.classList.contains('toast')) e.target.remove();
+      var toast = e.target.closest && e.target.closest('.toast');
+      if (toast) toast.remove();
     });
     document.addEventListener('submit', function (e) {
       var message = e.target.getAttribute('data-confirm');
       if (message && !window.confirm(message)) e.preventDefault();
     });
   </script>
+  ${scripts}
 </body>
 </html>`;
+}
+
+// --- Bausteine -------------------------------------------------------------------
+
+function pageHead(title, { iconName = null, sub = null, actions = '' } = {}) {
+  return html`<div class="page-head">
+    <div class="page-title">
+      ${iconName ? html`<span class="page-icon">${icon(iconName, { size: 22 })}</span>` : ''}
+      <div>
+        <h1>${title}</h1>
+        ${sub ? html`<p class="page-sub">${sub}</p>` : ''}
+      </div>
+    </div>
+    ${actions ? html`<div class="page-actions">${actions}</div>` : ''}
+  </div>`;
+}
+
+function sectionHead(title, { iconName = null, count = null, extra = '' } = {}) {
+  return html`<div class="section-head">
+    <h2>${iconName ? icon(iconName, { size: 20 }) : ''}<span>${title}</span>${
+      count === null ? '' : html`<span class="count">${count}</span>`}</h2>
+    ${extra}
+  </div>`;
+}
+
+const chip = (iconName, text, cls = '') =>
+  html`<span class="chip${cls ? ` ${cls}` : ''}">${icon(iconName, { size: 14 })}<span>${text}</span></span>`;
+
+function linkChip(job, { warnMissing = true } = {}) {
+  if (job.makerworldUrl) {
+    return html`<a class="chip chip-link" href="${job.makerworldUrl}" target="_blank" rel="noopener noreferrer">${
+      icon('external-link', { size: 14 })}<span>${isMakerworld(job.makerworldUrl) ? 'MakerWorld' : 'Link'}</span></a>`;
+  }
+  if (!warnMissing) return '';
+  return html`<span class="chip chip-warn" title="Modell muss selbst besorgt oder erstellt werden">${
+    icon('alert', { size: 14 })}<span>Kein Link</span></span>`;
+}
+
+function thumb(job, { pos = null, next = false } = {}) {
+  return html`<div class="thumb" aria-hidden="true">
+    ${icon('box', { size: 24 })}
+    ${job.imageUrl ? html`<img src="${job.imageUrl}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}
+    ${pos ? html`<span class="pos${next ? ' pos-next' : ''}">${pos}</span>` : ''}
+  </div>`;
+}
+
+function jobChips(ctx, job, { warnMissing = true, showDate = true } = {}) {
+  return html`<div class="chips">
+    ${chip('user', job.requester)}
+    ${job.quantity > 1 ? chip('hash', `${job.quantity}×`) : ''}
+    ${job.color ? chip('palette', job.color) : ''}
+    ${linkChip(job, { warnMissing })}
+    ${showDate ? chip('clock', ctx.date(job.createdAt), 'chip-muted') : ''}
+  </div>`;
+}
+
+function jobNotes(job, { showMissingHint = false } = {}) {
+  return html`
+    ${job.notes ? html`<p class="note">${icon('note', { size: 16 })}<span>${job.notes}</span></p>` : ''}
+    ${job.adminNote ? html`<p class="note note-admin">${icon('wrench', { size: 16 })}<span>${job.adminNote}</span></p>` : ''}
+    ${showMissingHint && !job.makerworldUrl
+    ? html`<p class="note note-warn">${icon('alert', { size: 16 })}<span>Kein MakerWorld-Link – das Modell musst du selbst besorgen oder erstellen.</span></p>`
+    : ''}`;
+}
+
+function empty(iconName, text) {
+  return html`<div class="empty">${icon(iconName, { size: 28 })}<p>${text}</p></div>`;
+}
+
+/** Ein Knopf, der eine Aktion für einen Auftrag abschickt. */
+function action(ctx, job, name, label, {
+  iconName = null, cls = 'btn', confirm = null, back = null, iconOnly = false,
+} = {}) {
+  return html`<form method="post" action="/admin/auftrag/${job.id}/${name}" class="inline"${
+    confirm ? html` data-confirm="${confirm}"` : ''}>
+    <input type="hidden" name="csrf_token" value="${ctx.csrf}">
+    ${back ? html`<input type="hidden" name="back" value="${back}">` : ''}
+    <button type="submit" class="${cls}"${iconOnly ? html` title="${label}" aria-label="${label}"` : ''}>${
+      iconName ? icon(iconName, { size: 18 }) : ''}${iconOnly ? '' : html`<span>${label}</span>`}</button>
+  </form>`;
 }
 
 function jobFields(values, { admin = false, printedDate = false } = {}) {
   return html`
   <label class="field">
-    <span>${admin ? 'Für wen' : 'Dein Name'} <em>*</em></span>
+    <span class="label">${admin ? 'Für wen' : 'Dein Name'} <em>*</em></span>
     <input name="requester" maxlength="60" required autocomplete="name"
            value="${values.requester}" placeholder="z. B. Oma Inge">
   </label>
 
   <label class="field">
-    <span>MakerWorld-Link</span>
-    <input name="makerworld_url" type="text" inputmode="url" autocapitalize="off" spellcheck="false"
-           maxlength="500" value="${values.makerworldUrl}" placeholder="https://makerworld.com/de/models/…">
+    <span class="label">MakerWorld-Link</span>
+    <span class="input-icon">${icon('link', { size: 18 })}
+      <input name="makerworld_url" type="text" inputmode="url" autocapitalize="off" spellcheck="false"
+             maxlength="500" value="${values.makerworldUrl}" placeholder="https://makerworld.com/de/models/…"></span>
     <small>Hast du keinen? Kein Problem – beschreib unten einfach, was du brauchst.</small>
   </label>
 
   <label class="field">
-    <span>Was soll gedruckt werden?</span>
+    <span class="label">Was soll gedruckt werden?</span>
     <input name="title" maxlength="120" value="${values.title}" placeholder="z. B. Handyhalter fürs Auto">
     <small>Bei einem MakerWorld-Link darf das leer bleiben.</small>
   </label>
 
   <div class="row">
     <label class="field narrow">
-      <span>Anzahl</span>
-      <input name="quantity" type="number" min="1" max="99" value="${values.quantity || 1}">
+      <span class="label">Anzahl</span>
+      <input name="quantity" type="number" inputmode="numeric" min="1" max="99" value="${values.quantity || 1}">
     </label>
     <label class="field">
-      <span>Farbe / Material</span>
+      <span class="label">Farbe / Material</span>
       <input name="color" maxlength="60" value="${values.color}" placeholder="z. B. Rot, egal">
     </label>
   </div>
 
   ${printedDate ? html`
   <label class="field">
-    <span>Gedruckt am <em>*</em></span>
+    <span class="label">Gedruckt am <em>*</em></span>
     <input name="printed_at" type="date" required value="${values.printedAt}">
   </label>` : ''}
 
   <label class="field">
-    <span>Beschreibung &amp; Wünsche</span>
+    <span class="label">Beschreibung &amp; Wünsche</span>
     <textarea name="notes" rows="4" maxlength="1000"
               placeholder="Größe, Maße, wofür es ist, bis wann du es brauchst …">${values.notes}</textarea>
   </label>
 
   ${admin ? html`
   <label class="field">
-    <span>Vorschaubild-Link</span>
+    <span class="label">Vorschaubild-Link</span>
     <input name="image_url" type="text" inputmode="url" autocapitalize="off" spellcheck="false"
            maxlength="500" value="${values.imageUrl}" placeholder="https://… (wird bei MakerWorld automatisch versucht)">
   </label>
   <label class="field">
-    <span>Admin-Notiz <small>(nur für dich &amp; Discord)</small></span>
+    <span class="label">Admin-Notiz <small>(nur für dich &amp; Discord)</small></span>
     <textarea name="admin_note" rows="2" maxlength="1000"
               placeholder="z. B. PETG, 0,2 mm, Stützen nötig">${values.adminNote}</textarea>
   </label>` : ''}`;
 }
 
-function linkBadge(job, { warnMissing = true } = {}) {
-  if (job.makerworldUrl) {
-    return html`<a class="badge badge-link" href="${job.makerworldUrl}" target="_blank" rel="noopener noreferrer">${
-      isMakerworld(job.makerworldUrl) ? 'MakerWorld' : 'Link'} ↗</a>`;
-  }
-  if (!warnMissing) return '';
-  return html`<span class="badge badge-warn" title="Modell muss selbst besorgt oder erstellt werden">kein Link</span>`;
-}
-
-function jobMeta(ctx, job) {
-  return html`<div class="meta">
-    <span>👤 ${job.requester}</span>
-    ${job.quantity > 1 ? html`<span>🔢 ${job.quantity}×</span>` : ''}
-    ${job.color ? html`<span>🎨 ${job.color}</span>` : ''}
-    <span class="muted">${ctx.date(job.createdAt)}</span>
-  </div>`;
-}
-
-function thumb(job) {
-  return job.imageUrl
-    ? html`<img class="thumb" src="${job.imageUrl}" alt="" loading="lazy" referrerpolicy="no-referrer">`
-    : html`<div class="thumb thumb-empty" aria-hidden="true">🧊</div>`;
-}
-
 // --- Öffentliche Seiten ---------------------------------------------------------
+
+function queueList(ctx, queue, topN) {
+  if (!queue.length) return empty('layers', 'Gerade ist nichts in der Warteschlange.');
+  return html`<ol class="joblist">
+    ${queue.map((job, i) => html`
+      <li class="job${i < topN ? ' job-next' : ''}">
+        ${thumb(job, { pos: i + 1, next: i < topN })}
+        <div class="job-body">
+          <h3 class="job-title">${job.title}</h3>
+          ${jobChips(ctx, job, { warnMissing: false, showDate: false })}
+        </div>
+      </li>`)}
+  </ol>`;
+}
+
+function doneList(ctx, done) {
+  return html`<ul class="simple-list">
+    ${done.map((job) => html`<li>${icon('check-circle', { size: 18, className: 'ok' })}<span><strong>${job.title}</strong>
+      <span class="muted">für ${job.requester} · ${ctx.day(job.finishedAt)}</span></span></li>`)}
+  </ul>`;
+}
 
 function index(ctx, { values, stamp, queue, done, topN }) {
   const body = html`
 <div class="columns">
-  <section class="card" id="einreichen">
+  <section class="card card-hero" id="einreichen">
+    <div class="hero-icon">${icon('printer', { size: 26 })}</div>
     <h1>Druckauftrag einreichen</h1>
     <p class="lead">Füg einen <strong>MakerWorld-Link</strong> ein oder beschreib, was du gedruckt haben möchtest.
       Jede Anfrage wird erst geprüft und freigegeben – danach taucht sie in der Warteschlange auf.</p>
@@ -166,54 +290,56 @@ function index(ctx, { values, stamp, queue, done, topN }) {
         <label>Website <input name="website" tabindex="-1" autocomplete="off"></label>
       </div>
       ${jobFields(values)}
-      <button class="btn btn-primary btn-block" type="submit">Auftrag abschicken</button>
+      <button class="btn btn-primary btn-block btn-lg" type="submit">${icon('send', { size: 18 })}<span>Auftrag abschicken</span></button>
     </form>
   </section>
 
-  <div class="stack">
+  <div class="stack desktop-only">
     <section class="card" id="warteschlange">
-      <h2>Warteschlange <span class="count">${queue.length}</span></h2>
-      ${queue.length ? html`<ol class="joblist">
-        ${queue.map((job, i) => html`
-          <li class="job ${i < topN ? 'job-next' : ''}">
-            <span class="pos">${i + 1}</span>
-            ${thumb(job)}
-            <div class="job-body">
-              <div class="job-title">${job.title} ${linkBadge(job)}</div>
-              ${jobMeta(ctx, job)}
-            </div>
-          </li>`)}
-      </ol>` : html`<p class="empty">Gerade ist nichts in der Warteschlange.</p>`}
+      ${sectionHead('Warteschlange', { iconName: 'layers', count: queue.length })}
+      ${queueList(ctx, queue, topN)}
     </section>
-
     ${done.length ? html`
     <section class="card">
-      <h2>Zuletzt gedruckt</h2>
-      <ul class="simple-list">
-        ${done.map((job) => html`<li>✅ ${job.title} <span class="muted">für ${job.requester} · ${ctx.date(job.finishedAt)}</span></li>`)}
-      </ul>
+      ${sectionHead('Zuletzt gedruckt', { iconName: 'check-circle' })}
+      ${doneList(ctx, done)}
     </section>` : ''}
   </div>
 </div>`;
   return layout(ctx, { body });
 }
 
-// --- Admin -------------------------------------------------------------------
+function publicQueue(ctx, { queue, done, topN }) {
+  const body = html`
+${pageHead('Warteschlange', { iconName: 'layers', sub: 'Das wird als Nächstes gedruckt.' })}
+<section class="card">
+  ${sectionHead('Als Nächstes', { iconName: 'printer', count: queue.length })}
+  ${queueList(ctx, queue, topN)}
+</section>
+${done.length ? html`
+<section class="card">
+  ${sectionHead('Zuletzt gedruckt', { iconName: 'check-circle' })}
+  ${doneList(ctx, done)}
+</section>` : ''}`;
+  return layout(ctx, { title: 'Warteschlange', body });
+}
+
+// --- Anmelden & Konten ------------------------------------------------------------------
 
 function passwordFields({ current = false, autocomplete = 'new-password' } = {}) {
   return html`
     ${current ? html`
     <label class="field">
-      <span>Bisheriges Passwort <em>*</em></span>
+      <span class="label">Bisheriges Passwort <em>*</em></span>
       <input name="current_password" type="password" required autocomplete="current-password">
     </label>` : ''}
     <div class="row row-even">
       <label class="field">
-        <span>${current ? 'Neues Passwort' : 'Passwort'} <em>*</em> <small>(mind. 8 Zeichen)</small></span>
+        <span class="label">${current ? 'Neues Passwort' : 'Passwort'} <em>*</em> <small>(mind. 8 Zeichen)</small></span>
         <input name="password" type="password" required minlength="8" maxlength="200" autocomplete="${autocomplete}">
       </label>
       <label class="field">
-        <span>Nochmal <em>*</em></span>
+        <span class="label">Nochmal <em>*</em></span>
         <input name="password_repeat" type="password" required minlength="8" maxlength="200" autocomplete="${autocomplete}">
       </label>
     </div>`;
@@ -223,89 +349,93 @@ function accountFields(values) {
   return html`
     <div class="row row-even">
       <label class="field">
-        <span>Benutzername <em>*</em> <small>(zum Anmelden)</small></span>
+        <span class="label">Benutzername <em>*</em> <small>(zum Anmelden)</small></span>
         <input name="username" required minlength="3" maxlength="40"
-               autocapitalize="off" spellcheck="false" autocomplete="off" value="${values.username}" placeholder="z. B. tim">
+               autocapitalize="off" spellcheck="false" autocomplete="off" value="${values.username}" placeholder="z. B. christoph">
       </label>
       <label class="field">
-        <span>Name <small>(wird angezeigt)</small></span>
-        <input name="display_name" maxlength="60" value="${values.displayName}" placeholder="z. B. Tim">
+        <span class="label">Name <small>(wird angezeigt)</small></span>
+        <input name="display_name" maxlength="60" value="${values.displayName}" placeholder="z. B. Christoph">
       </label>
     </div>`;
 }
 
+function authCard(title, sub, content) {
+  return html`
+<section class="card auth-card">
+  <div class="auth-mark">${icon('printer', { size: 28 })}</div>
+  <h1>${title}</h1>
+  ${sub ? html`<p class="lead">${sub}</p>` : ''}
+  ${content}
+</section>`;
+}
+
 function adminLogin(ctx, { username }) {
-  const body = html`
-<section class="card narrow-card">
-  <h1>Anmelden</h1>
+  const body = authCard('Anmelden', 'Für den Admin-Bereich der Druck-Warteschlange.', html`
   <form method="post" action="/admin/login" class="form">
     <input type="hidden" name="csrf_token" value="${ctx.csrf}">
     <label class="field">
-      <span>Benutzername</span>
-      <input name="username" required autocapitalize="off" spellcheck="false" autocomplete="username"
-             value="${username}"${username ? '' : html` autofocus`}>
+      <span class="label">Benutzername</span>
+      <span class="input-icon">${icon('user', { size: 18 })}
+        <input name="username" required autocapitalize="off" spellcheck="false" autocomplete="username"
+               value="${username}"${username ? '' : html` autofocus`}></span>
     </label>
     <label class="field">
-      <span>Passwort</span>
-      <input name="password" type="password" required autocomplete="current-password"${username ? html` autofocus` : ''}>
+      <span class="label">Passwort</span>
+      <span class="input-icon">${icon('lock', { size: 18 })}
+        <input name="password" type="password" required autocomplete="current-password"${username ? html` autofocus` : ''}></span>
     </label>
-    <button class="btn btn-primary btn-block" type="submit">Anmelden</button>
-  </form>
-</section>`;
+    <button class="btn btn-primary btn-block btn-lg" type="submit">${icon('log-in', { size: 18 })}<span>Anmelden</span></button>
+  </form>`);
   return layout(ctx, { title: 'Anmelden', body });
 }
 
 function adminSetup(ctx, { setupEnabled, values }) {
-  const body = html`
-<section class="card narrow-card wide">
-  <h1>Willkommen! 👋</h1>
-  <p class="lead">Leg dein Konto für den Admin-Bereich an. Weitere Konten, z. B. für jemanden, der dir hilft,
-    kannst du danach unter <strong>Konten</strong> anlegen.</p>
-  ${setupEnabled ? html`
+  const body = authCard('Willkommen!', html`Leg dein Konto für den Admin-Bereich an. Weitere Konten, z. B. für
+    jemanden, der dir hilft, kannst du danach unter <strong>Konten</strong> anlegen.`, setupEnabled ? html`
   <form method="post" action="/admin/einrichten" class="form">
     <input type="hidden" name="csrf_token" value="${ctx.csrf}">
     <label class="field">
-      <span>Einrichtungs-Code <em>*</em> <small>(dein <code>ADMIN_PASSWORD</code> aus den Plesk-Einstellungen)</small></span>
-      <input name="setup_code" type="password" required autocomplete="off">
+      <span class="label">Einrichtungs-Code <em>*</em> <small>(dein <code>ADMIN_PASSWORD</code> aus den Plesk-Einstellungen)</small></span>
+      <span class="input-icon">${icon('key', { size: 18 })}<input name="setup_code" type="password" required autocomplete="off"></span>
     </label>
     ${accountFields(values)}
     ${passwordFields()}
-    <button class="btn btn-primary btn-block" type="submit">Konto anlegen</button>
+    <button class="btn btn-primary btn-block btn-lg" type="submit">${icon('user-plus', { size: 18 })}<span>Konto anlegen</span></button>
   </form>` : html`
-  <p class="flash flash-error">Zum Einrichten brauchst du einen Einrichtungs-Code: Trag in Plesk bei den
-    Umgebungsvariablen <code>ADMIN_PASSWORD</code> ein, starte die App neu und lade diese Seite nochmal.</p>`}
-</section>`;
+  <div class="flash flash-error">${icon('alert-circle')}<span>Zum Einrichten brauchst du einen Einrichtungs-Code: Trag in Plesk bei den
+    Umgebungsvariablen <code>ADMIN_PASSWORD</code> ein, starte die App neu und lade diese Seite nochmal.</span></div>`);
   return layout(ctx, { title: 'Einrichten', body });
 }
 
+const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2)
+  .map((part) => part[0]).join('').toUpperCase();
+
 function adminUsers(ctx, { users, me, newValues, openNew }) {
   const body = html`
-<div class="admin-head">
-  <h1>👤 Konten</h1>
-  <span class="muted small">Angemeldet als <strong>${me.displayName}</strong> (${me.username})</span>
-</div>
+${pageHead('Konten', { iconName: 'users', sub: html`Angemeldet als <strong>${me.displayName}</strong> (${me.username})` })}
 
 <section class="card">
-  <h2>Alle Konten <span class="count">${users.length}</span></h2>
+  ${sectionHead('Alle Konten', { iconName: 'users', count: users.length })}
   <p class="muted small">Jedes Konto darf alles im Admin-Bereich: freigeben, drucken, Archiv, Konten verwalten.
     Die Seite zum Einreichen ist für alle offen – dafür braucht niemand ein Konto.</p>
   <ul class="joblist">
     ${users.map((user) => html`
       <li class="job" id="nutzer-${user.id}">
-        <div class="thumb thumb-empty" aria-hidden="true">👤</div>
+        <div class="avatar" aria-hidden="true">${initials(user.displayName)}</div>
         <div class="job-body">
-          <div class="job-title">${user.displayName} <span class="muted small">${user.username}</span>
-            ${user.id === me.id ? html`<span class="badge badge-link">du</span>` : ''}</div>
-          <div class="meta">
-            <span class="muted">angelegt ${ctx.day(user.createdAt)}</span>
-            <span class="muted">${user.lastLoginAt ? `zuletzt angemeldet ${ctx.date(user.lastLoginAt)}` : 'noch nie angemeldet'}</span>
+          <h3 class="job-title">${user.displayName} <span class="muted small">${user.username}</span>
+            ${user.id === me.id ? html`<span class="chip chip-link chip-static">du</span>` : ''}</h3>
+          <div class="chips">
+            ${chip('calendar', `angelegt ${ctx.day(user.createdAt)}`, 'chip-muted')}
+            ${chip('log-in', user.lastLoginAt ? `zuletzt ${ctx.date(user.lastLoginAt)}` : 'noch nie angemeldet', 'chip-muted')}
           </div>
-          <details class="add-own compact-details">
-            <summary>${user.id === me.id ? '🔒 Mein Passwort ändern' : '🔒 Neues Passwort setzen'}</summary>
+          <details class="disclosure">
+            <summary>${icon('lock', { size: 16 })}<span>${user.id === me.id ? 'Mein Passwort ändern' : 'Neues Passwort setzen'}</span></summary>
             <form method="post" action="/admin/nutzer/${user.id}/passwort" class="form">
               <input type="hidden" name="csrf_token" value="${ctx.csrf}">
               ${passwordFields({ current: user.id === me.id })}
-              <button class="btn btn-primary btn-small" type="submit">Passwort speichern</button>
+              <button class="btn btn-primary" type="submit">${icon('check', { size: 18 })}<span>Passwort speichern</span></button>
             </form>
           </details>
           ${user.id === me.id ? '' : html`
@@ -313,7 +443,7 @@ function adminUsers(ctx, { users, me, newValues, openNew }) {
             <form method="post" action="/admin/nutzer/${user.id}/loeschen" class="inline"
                   data-confirm="${`Das Konto von ${user.displayName} wirklich löschen?`}">
               <input type="hidden" name="csrf_token" value="${ctx.csrf}">
-              <button class="btn btn-small btn-danger-soft" type="submit">Konto löschen</button>
+              <button class="btn btn-sm btn-danger" type="submit">${icon('user-x', { size: 16 })}<span>Konto löschen</span></button>
             </form>
           </div>`}
         </div>
@@ -322,169 +452,169 @@ function adminUsers(ctx, { users, me, newValues, openNew }) {
 </section>
 
 <section class="card">
-  <details class="add-own"${openNew ? html` open` : ''}>
-    <summary>➕ Neues Konto anlegen</summary>
+  <details class="disclosure disclosure-lg"${openNew ? html` open` : ''}>
+    <summary>${icon('user-plus', { size: 18 })}<span>Neues Konto anlegen</span></summary>
     <form method="post" action="/admin/nutzer/neu" class="form">
       <input type="hidden" name="csrf_token" value="${ctx.csrf}">
       ${accountFields(newValues)}
       ${passwordFields()}
-      <button class="btn btn-primary" type="submit">Konto anlegen</button>
+      <button class="btn btn-primary" type="submit">${icon('user-plus', { size: 18 })}<span>Konto anlegen</span></button>
     </form>
   </details>
 </section>`;
   return layout(ctx, { title: 'Konten', body });
 }
 
-const LOG_LABELS = {
-  anfrage: '🆕 Neue Anfrage',
-  freigegeben: '✅ Freigegeben',
-  abgelehnt: '✖️ Abgelehnt',
-  gedruckt: '🖨️ Gedruckt',
-  zurueckgeholt: '↩️ Zurück in die Warteschlange',
-  freigabe_zurueck: '↩️ Freigabe zurückgenommen',
-  geloescht: '🗑️ Gelöscht',
-  bearbeitet: '✏️ Bearbeitet',
-  nochmal: '🔁 Nochmal drucken',
-  eigener_auftrag: '➕ Eigener Auftrag',
-  eingetragen: '📚 Ins Archiv eingetragen',
-  importiert: '📋 Links ins Archiv übernommen',
-  login: '🔑 Angemeldet',
-  login_fehlgeschlagen: '⚠️ Falsches Passwort',
-  gesperrt: '⛔ Zu viele Fehlversuche – kurz gesperrt',
-  eingerichtet: '🎉 Ersteinrichtung',
-  nutzer_angelegt: '👤 Konto angelegt',
-  nutzer_geloescht: '👤 Konto gelöscht',
-  passwort_geaendert: '🔒 Passwort geändert',
+// Verlauf: Aktion -> [Icon, Text, Farbe]
+const LOG_KINDS = {
+  anfrage: ['inbox', 'Neue Anfrage', 'info'],
+  freigegeben: ['check-circle', 'Freigegeben', 'ok'],
+  abgelehnt: ['ban', 'Abgelehnt', 'danger'],
+  gedruckt: ['printer', 'Gedruckt', 'ok'],
+  zurueckgeholt: ['undo', 'Zurück in die Warteschlange', 'neutral'],
+  freigabe_zurueck: ['undo', 'Freigabe zurückgenommen', 'neutral'],
+  geloescht: ['trash', 'Gelöscht', 'danger'],
+  bearbeitet: ['pencil', 'Bearbeitet', 'neutral'],
+  nochmal: ['repeat', 'Nochmal drucken', 'info'],
+  eigener_auftrag: ['list-plus', 'Eigener Auftrag', 'info'],
+  eingetragen: ['archive', 'Ins Archiv eingetragen', 'neutral'],
+  importiert: ['archive', 'Links ins Archiv übernommen', 'neutral'],
+  login: ['log-in', 'Angemeldet', 'neutral'],
+  login_fehlgeschlagen: ['alert', 'Falsches Passwort', 'warn'],
+  gesperrt: ['lock', 'Zu viele Fehlversuche – kurz gesperrt', 'danger'],
+  eingerichtet: ['sparkles', 'Ersteinrichtung', 'ok'],
+  nutzer_angelegt: ['user-plus', 'Konto angelegt', 'info'],
+  nutzer_geloescht: ['user-x', 'Konto gelöscht', 'danger'],
+  passwort_geaendert: ['key', 'Passwort geändert', 'neutral'],
 };
 
 function adminLog(ctx, { entries }) {
   const body = html`
-<div class="admin-head">
-  <h1>🕘 Verlauf</h1>
-  <span class="muted small">die letzten ${entries.length} Einträge</span>
-</div>
+${pageHead('Verlauf', { iconName: 'history', sub: `Die letzten ${entries.length} Einträge – wer hat wann was gemacht.` })}
 <section class="card">
   ${entries.length ? html`
   <ul class="log-list">
-    ${entries.map((entry) => html`
+    ${entries.map((entry) => {
+      const [iconName, label, tone] = LOG_KINDS[entry.action] || ['info', entry.action, 'neutral'];
+      return html`
       <li>
-        <time class="muted">${ctx.date(entry.createdAt)}</time>
-        <span class="log-what">${LOG_LABELS[entry.action] || entry.action}${
-          entry.jobTitle ? html` <strong>${entry.jobTitle}</strong>` : ''}${
-          entry.details ? html` <span class="muted">· ${entry.details}</span>` : ''}</span>
-        <span class="log-who">${entry.userName || '–'}</span>
-      </li>`)}
-  </ul>` : html`<p class="empty">Noch nichts passiert.</p>`}
+        <span class="log-icon tone-${tone}">${icon(iconName, { size: 16 })}</span>
+        <div class="log-body">
+          <div class="log-what">${label}${entry.jobTitle ? html` <strong>${entry.jobTitle}</strong>` : ''}${
+            entry.details ? html` <span class="muted">· ${entry.details}</span>` : ''}</div>
+          <div class="log-meta"><span>${entry.userName || '–'}</span><time>${ctx.date(entry.createdAt)}</time></div>
+        </div>
+      </li>`;
+    })}
+  </ul>` : empty('history', 'Noch nichts passiert.')}
 </section>`;
   return layout(ctx, { title: 'Verlauf', body });
 }
 
-function action(ctx, job, name, label, { cls = 'btn', confirm = null, title = null, back = null } = {}) {
-  return html`<form method="post" action="/admin/auftrag/${job.id}/${name}" class="inline"${
-    confirm ? html` data-confirm="${confirm}"` : ''}>
-    <input type="hidden" name="csrf_token" value="${ctx.csrf}">
-    ${back ? html`<input type="hidden" name="back" value="${back}">` : ''}
-    <button type="submit" class="${cls}"${title ? html` title="${title}" aria-label="${title}"` : ''}>${label}</button>
-  </form>`;
-}
-
-function jobDetails(job) {
-  return html`
-    ${job.notes ? html`<p class="notes">📝 ${job.notes}</p>` : ''}
-    ${job.adminNote ? html`<p class="notes admin-note">🛠️ ${job.adminNote}</p>` : ''}
-    ${job.makerworldUrl ? '' : html`<p class="hint-warn">⚠️ Kein MakerWorld-Link – Modell musst du selbst besorgen oder erstellen.</p>`}`;
-}
+// --- Admin: Aufträge -----------------------------------------------------------------
 
 function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValues, openNew }) {
+  const discordOk = discord.configured && !discord.error;
   const discordLabel = discord.error ? 'Fehler' : discord.configured ? 'aktiv' : 'nicht eingerichtet';
   const body = html`
-<div class="admin-head">
-  <h1>Admin</h1>
-  <a class="pill ${discord.configured && !discord.error ? 'pill-ok' : 'pill-warn'}" href="#discord">Discord: ${discordLabel}</a>
-</div>
+${pageHead('Aufträge', {
+    iconName: 'inbox',
+    sub: html`${pending.length} warten auf Freigabe · ${queue.length} in der Warteschlange`,
+    actions: html`<a class="status-pill ${discordOk ? 'is-ok' : 'is-warn'}" href="#discord">${
+      icon('message', { size: 16 })}<span>Discord ${discordLabel}</span></a>`,
+  })}
 
 <section class="card" id="anfragen">
-  <h2>Warten auf Freigabe <span class="count">${pending.length}</span></h2>
+  ${sectionHead('Warten auf Freigabe', { iconName: 'inbox', count: pending.length })}
   ${pending.length ? html`<ul class="joblist">
     ${pending.map((job) => html`
       <li class="job job-admin" id="auftrag-${job.id}">
         ${thumb(job)}
         <div class="job-body">
-          <div class="job-title">${job.title} ${linkBadge(job)}</div>
-          ${jobMeta(ctx, job)}
-          ${jobDetails(job)}
+          <h3 class="job-title">${job.title}</h3>
+          ${jobChips(ctx, job, { warnMissing: false })}
+          ${jobNotes(job, { showMissingHint: true })}
           <div class="actions">
-            ${action(ctx, job, 'approve', '✓ Freigeben', { cls: 'btn btn-primary' })}
-            <a class="btn" href="/admin/auftrag/${job.id}/bearbeiten">Bearbeiten</a>
-            ${action(ctx, job, 'reject', 'Ablehnen', { cls: 'btn btn-danger-soft', confirm: `„${job.title}“ ablehnen?` })}
+            ${action(ctx, job, 'approve', 'Freigeben', { iconName: 'check', cls: 'btn btn-primary' })}
+            <a class="btn" href="/admin/auftrag/${job.id}/bearbeiten">${icon('pencil', { size: 18 })}<span>Bearbeiten</span></a>
+            ${action(ctx, job, 'reject', 'Ablehnen', { iconName: 'x', cls: 'btn btn-danger', confirm: `„${job.title}“ ablehnen?` })}
           </div>
         </div>
       </li>`)}
-  </ul>` : html`<p class="empty">Keine neuen Anfragen. 🎉</p>`}
+  </ul>` : empty('check-circle', 'Keine neuen Anfragen.')}
 </section>
 
 <section class="card" id="warteschlange">
-  <h2>Warteschlange <span class="count">${queue.length}</span></h2>
-  <p class="muted small">Die obersten ${topN} werden an Discord geschickt – aber nur, wenn sich an ihnen etwas ändert.</p>
+  ${sectionHead('Warteschlange', { iconName: 'layers', count: queue.length })}
+  <p class="muted small">Die obersten ${topN} gehen an Discord – aber nur, wenn sich an ihnen etwas ändert.</p>
   ${queue.length ? html`<ol class="joblist">
     ${queue.map((job, i) => html`
-      <li class="job job-admin ${i < topN ? 'job-next' : ''}" id="auftrag-${job.id}">
-        <span class="pos">${i + 1}</span>
-        ${thumb(job)}
+      <li class="job job-admin${i < topN ? ' job-next' : ''}" id="auftrag-${job.id}">
+        ${thumb(job, { pos: i + 1, next: i < topN })}
         <div class="job-body">
-          <div class="job-title">${job.title} ${linkBadge(job)}
-            ${i < topN ? html`<span class="badge badge-discord">Discord</span>` : ''}</div>
-          ${jobMeta(ctx, job)}
-          ${jobDetails(job)}
+          <div class="job-head">
+            <h3 class="job-title">${job.title}</h3>
+            ${i < topN ? html`<span class="chip chip-discord chip-static">${icon('message', { size: 14 })}<span>Discord</span></span>` : ''}
+          </div>
+          ${jobChips(ctx, job, { warnMissing: false })}
+          ${jobNotes(job, { showMissingHint: true })}
           <div class="actions">
-            <span class="btn-group">
-              ${action(ctx, job, 'top', '⤒', { cls: 'btn btn-icon', title: 'Ganz nach oben' })}
-              ${action(ctx, job, 'up', '↑', { cls: 'btn btn-icon', title: 'Eins hoch' })}
-              ${action(ctx, job, 'down', '↓', { cls: 'btn btn-icon', title: 'Eins runter' })}
-              ${action(ctx, job, 'bottom', '⤓', { cls: 'btn btn-icon', title: 'Ganz nach unten' })}
+            <span class="segmented" role="group" aria-label="Reihenfolge">
+              ${action(ctx, job, 'top', 'Ganz nach oben', { iconName: 'chevrons-up', cls: 'seg', iconOnly: true })}
+              ${action(ctx, job, 'up', 'Eins hoch', { iconName: 'chevron-up', cls: 'seg', iconOnly: true })}
+              ${action(ctx, job, 'down', 'Eins runter', { iconName: 'chevron-down', cls: 'seg', iconOnly: true })}
+              ${action(ctx, job, 'bottom', 'Ganz nach unten', { iconName: 'chevrons-down', cls: 'seg', iconOnly: true })}
             </span>
-            ${action(ctx, job, 'done', '✓ Gedruckt', { cls: 'btn btn-primary' })}
-            <a class="btn" href="/admin/auftrag/${job.id}/bearbeiten">Bearbeiten</a>
-            ${action(ctx, job, 'unapprove', 'Freigabe zurücknehmen')}
-            ${action(ctx, job, 'delete', 'Löschen', { cls: 'btn btn-danger-soft', confirm: `„${job.title}“ wirklich löschen?` })}
+            ${action(ctx, job, 'done', 'Gedruckt', { iconName: 'check', cls: 'btn btn-primary' })}
+            <details class="more">
+              <summary class="btn btn-ghost" aria-label="Mehr Aktionen">${icon('more', { size: 18 })}</summary>
+              <div class="more-menu">
+                <a class="btn btn-ghost" href="/admin/auftrag/${job.id}/bearbeiten">${icon('pencil', { size: 18 })}<span>Bearbeiten</span></a>
+                ${action(ctx, job, 'unapprove', 'Freigabe zurücknehmen', { iconName: 'undo', cls: 'btn btn-ghost' })}
+                ${action(ctx, job, 'delete', 'Löschen', { iconName: 'trash', cls: 'btn btn-ghost btn-ghost-danger', confirm: `„${job.title}“ wirklich löschen?` })}
+              </div>
+            </details>
           </div>
         </div>
       </li>`)}
-  </ol>` : html`<p class="empty">Die Warteschlange ist leer.</p>`}
+  </ol>` : empty('layers', 'Die Warteschlange ist leer.')}
 
-  <details class="add-own"${openNew ? html` open` : ''}>
-    <summary>➕ Eigenen Auftrag direkt in die Warteschlange</summary>
+  <details class="disclosure disclosure-lg"${openNew ? html` open` : ''}>
+    <summary>${icon('list-plus', { size: 18 })}<span>Eigenen Auftrag direkt in die Warteschlange</span></summary>
     <p class="muted small">Schon gedruckt? Dann <a href="/admin/archiv#eintragen">trag ihn direkt im Archiv ein</a>.</p>
     <form method="post" action="/admin/auftrag/neu" class="form">
       <input type="hidden" name="csrf_token" value="${ctx.csrf}">
       ${jobFields(newValues, { admin: true })}
-      <button class="btn btn-primary" type="submit">Hinzufügen</button>
+      <button class="btn btn-primary" type="submit">${icon('plus', { size: 18 })}<span>Hinzufügen</span></button>
     </form>
   </details>
 </section>
 
 <section class="card" id="erledigt">
-  <h2>Erledigt &amp; abgelehnt</h2>
-  <p class="small"><a href="/admin/archiv">📚 Alle gedruckten Aufträge im Archiv durchsuchen →</a></p>
-  ${finished.length ? html`<ul class="joblist compact">
+  ${sectionHead('Erledigt & abgelehnt', {
+    iconName: 'check-circle',
+    extra: html`<a class="link-more" href="/admin/archiv">Archiv ${icon('chevron-right', { size: 16 })}</a>`,
+  })}
+  ${finished.length ? html`<ul class="compact-list">
     ${finished.map((job) => html`
-      <li class="job job-admin" id="auftrag-${job.id}">
-        <div class="job-body">
-          <div class="job-title">
-            ${job.status === 'done' ? '✅' : '✖️'} ${job.title}
-            <span class="muted small">für ${job.requester} · ${ctx.date(job.finishedAt)}</span>
-          </div>
-          <div class="actions">
-            ${action(ctx, job, 'restore', 'Zurück in die Warteschlange', { cls: 'btn btn-small' })}
-            ${action(ctx, job, 'delete', 'Löschen', { cls: 'btn btn-small btn-danger-soft', confirm: `„${job.title}“ wirklich löschen?` })}
-          </div>
+      <li id="auftrag-${job.id}">
+        ${job.status === 'done'
+    ? icon('check-circle', { size: 20, className: 'ok', label: 'gedruckt' })
+    : icon('ban', { size: 20, className: 'danger', label: 'abgelehnt' })}
+        <div class="compact-body">
+          <strong>${job.title}</strong>
+          <span class="muted small">für ${job.requester} · ${ctx.date(job.finishedAt)}</span>
+        </div>
+        <div class="compact-actions">
+          ${action(ctx, job, 'restore', 'Zurück in die Warteschlange', { iconName: 'undo', cls: 'icon-btn', iconOnly: true })}
+          ${action(ctx, job, 'delete', 'Löschen', { iconName: 'trash', cls: 'icon-btn icon-btn-danger', iconOnly: true, confirm: `„${job.title}“ wirklich löschen?` })}
         </div>
       </li>`)}
-  </ul>` : html`<p class="empty">Noch nichts erledigt.</p>`}
+  </ul>` : empty('check-circle', 'Noch nichts erledigt.')}
 </section>
 
 <section class="card" id="discord">
-  <h2>Discord</h2>
+  ${sectionHead('Discord', { iconName: 'message' })}
   ${discord.configured ? html`
   <dl class="facts">
     <dt>Warteschlange</dt><dd>die obersten ${discord.topN} Aufträge, sobald sich an ihnen etwas ändert</dd>
@@ -493,103 +623,145 @@ function adminDashboard(ctx, { pending, queue, finished, discord, topN, newValue
     <dt>Zuletzt gesendet</dt><dd>${discord.lastSentAt ? ctx.date(discord.lastSentAt) : 'noch nie'}</dd>
     ${discord.error ? html`<dt>Letzter Fehler</dt><dd class="error-text">${ctx.date(discord.error.at)} – ${discord.error.message}</dd>` : ''}
   </dl>
-  ${discord.hasPublicUrl ? '' : html`<p class="hint-warn">Tipp: Trag <code>PUBLIC_URL</code> ein (z. B.
-    <code>https://druck.deine-domain.de</code>) – dann kommst du aus Discord mit einem Klick direkt zur Freigabe.</p>`}
+  ${discord.hasPublicUrl ? '' : html`<p class="note note-warn">${icon('info', { size: 16 })}<span>Tipp: Trag <code>PUBLIC_URL</code> ein
+    (z. B. <code>https://druck.deine-domain.de</code>) – dann kommst du aus Discord mit einem Klick direkt zur Freigabe.</span></p>`}
   <form method="post" action="/admin/discord/senden">
     <input type="hidden" name="csrf_token" value="${ctx.csrf}">
-    <button class="btn" type="submit">Jetzt an Discord senden</button>
+    <button class="btn" type="submit">${icon('send', { size: 18 })}<span>Jetzt an Discord senden</span></button>
   </form>` : html`
   <p>Es ist noch kein Discord-Webhook eingerichtet. Leg in Discord unter
     <em>Kanal bearbeiten → Integrationen → Webhooks</em> einen Webhook an und trag die URL als
-    <code>DISCORD_WEBHOOK_URL</code> in Plesk bei den Umgebungsvariablen ein.</p>`}
+    <code>DISCORD_WEBHOOK_URL</code> ein.</p>`}
 </section>`;
-  return layout(ctx, { title: 'Admin', body });
+  return layout(ctx, { title: 'Aufträge', body });
 }
 
 function adminEdit(ctx, { job, values, back }) {
   const body = html`
-<section class="card narrow-card wide">
-  <p><a href="${back}#auftrag-${job.id}">← Zurück</a></p>
-  <h1>${job.status === 'done' ? 'Druck bearbeiten' : 'Auftrag bearbeiten'}</h1>
+<a class="back-link" href="${back}#auftrag-${job.id}">${icon('arrow-left', { size: 18 })}<span>Zurück</span></a>
+${pageHead(job.status === 'done' ? 'Druck bearbeiten' : 'Auftrag bearbeiten', { iconName: 'pencil' })}
+<section class="card card-narrow">
   <form method="post" action="/admin/auftrag/${job.id}/bearbeiten" class="form">
     <input type="hidden" name="csrf_token" value="${ctx.csrf}">
     <input type="hidden" name="back" value="${back}">
     ${jobFields(values, { admin: true, printedDate: job.status === 'done' })}
-    <button class="btn btn-primary" type="submit">Speichern</button>
+    <button class="btn btn-primary btn-lg" type="submit">${icon('check', { size: 18 })}<span>Speichern</span></button>
   </form>
 </section>`;
   return layout(ctx, { title: 'Auftrag bearbeiten', body });
 }
 
+// --- Archiv ------------------------------------------------------------------------------
+
 /** „5 Drucke · 14 Teile · 4 Personen“ – die Skripte passen Zahl und Einzahl/Mehrzahl live an. */
 function statsLine(stats) {
-  const stat = (id, count, one, many) => html`<span><strong id="stat-${id}">${count}</strong> <span
-    data-one="${one}" data-many="${many}">${count === 1 ? one : many}</span></span>`;
+  const stat = (id, iconName, count, one, many) => html`<span class="stat">${icon(iconName, { size: 16 })}${
+    html`<strong id="stat-${id}">${count}</strong>`} <span data-one="${one}" data-many="${many}">${
+    count === 1 ? one : many}</span></span>`;
   return html`<p class="archive-stats">
-    ${stat('drucke', stats.prints, 'Druck', 'Drucke')}
-    ${stat('teile', stats.pieces, 'Teil', 'Teile')}
-    ${stat('personen', stats.people, 'Person', 'Personen')}
+    ${stat('drucke', 'printer', stats.prints, 'Druck', 'Drucke')}
+    ${stat('teile', 'box', stats.pieces, 'Teil', 'Teile')}
+    ${stat('personen', 'users', stats.people, 'Person', 'Personen')}
   </p>`;
+}
+
+function searchField(attrs) {
+  return html`<span class="search">${icon('search', { size: 18 })}${attrs}</span>`;
+}
+
+function archiveEntry(ctx, job, { text, visible = true, admin = true, back = '', day }) {
+  const editLink = `/admin/auftrag/${job.id}/bearbeiten?back=${encodeURIComponent(back)}`;
+  const chips = html`<div class="chips">
+    ${chip('calendar', day(job.finishedAt))}
+    ${chip('user', job.requester)}
+    ${job.quantity > 1 ? chip('hash', `${job.quantity}×`) : ''}
+    ${job.color ? chip('palette', job.color) : ''}
+    ${linkChip(job, { warnMissing: false })}
+  </div>`;
+  const content = html`
+        ${thumb(job)}
+        <div class="job-body">
+          <h3 class="job-title">${job.title}</h3>
+          ${chips}
+          ${jobNotes(job)}
+          ${admin ? html`
+          <div class="actions">
+            ${action(ctx, job, 'nochmal', 'Nochmal drucken', { iconName: 'repeat', cls: 'btn btn-primary btn-sm', back })}
+            <a class="btn btn-sm" href="${editLink}">${icon('pencil', { size: 16 })}<span>Bearbeiten</span></a>
+            ${action(ctx, job, 'delete', 'Löschen', {
+    iconName: 'trash', cls: 'icon-btn icon-btn-danger', iconOnly: true, confirm: `„${job.title}“ aus dem Archiv löschen?`, back,
+  })}
+          </div>` : ''}
+        </div>`;
+  if (!admin) {
+    return html`
+      <li class="job" data-search="${text}" data-person="${job.requester}" data-date="${job.finishedAt}"
+          data-title="${job.title}" data-qty="${job.quantity || 1}">${content}
+      </li>`;
+  }
+  return html`
+      <li class="job job-admin" id="auftrag-${job.id}" data-search="${text}" data-qty="${job.quantity || 1}"
+          data-person="${job.requester}"${visible ? '' : html` hidden`}>${content}
+      </li>`;
 }
 
 function adminArchive(ctx, {
   q, person, sort, entries, stats, total, people, back, newValues, importValues, openNew, openImport,
 }) {
-  const sortOptions = [['neu', 'Neueste zuerst'], ['alt', 'Älteste zuerst'], ['titel', 'Titel A–Z'], ['person', 'Nach Person']];
-  const editLink = (job) => `/admin/auftrag/${job.id}/bearbeiten?back=${encodeURIComponent(back)}`;
+  const sortOptions = [['neu', 'Neueste'], ['alt', 'Älteste'], ['titel', 'Titel A–Z'], ['person', 'Nach Person']];
   const body = html`
-<div class="admin-head">
-  <h1>📚 Druck-Archiv</h1>
-  <div class="head-actions">
-    <a class="btn btn-primary btn-small" href="#eintragen" data-open="eintragen">➕ Druck eintragen</a>
-    ${total ? html`
-    <a class="btn btn-small" href="/admin/archiv.html" download
-       title="Eine Datei mit allen Drucken – inklusive Suche, auch offline">⬇️ HTML mit Suche</a>
-    <a class="btn btn-small" href="/admin/archiv.csv${back.includes('?') ? back.slice(back.indexOf('?')) : ''}"
-       download title="Aktuelle Auswahl als Tabelle für Excel">⬇️ CSV</a>` : ''}
-  </div>
-</div>
+${pageHead('Druck-Archiv', {
+    iconName: 'archive',
+    sub: 'Alles, was du je gedruckt hast.',
+    actions: html`
+      <a class="btn btn-primary btn-sm" href="#eintragen" data-open="eintragen">${icon('plus', { size: 16 })}<span>Druck eintragen</span></a>
+      ${total ? html`
+      <a class="btn btn-sm" href="/admin/archiv.html" download
+         title="Eine Datei mit allen Drucken – inklusive Suche, auch offline">${icon('file-down', { size: 16 })}<span>HTML mit Suche</span></a>
+      <a class="btn btn-sm" href="/admin/archiv.csv${back.includes('?') ? back.slice(back.indexOf('?')) : ''}"
+         download title="Aktuelle Auswahl als Tabelle für Excel">${icon('table', { size: 16 })}<span>CSV</span></a>` : ''}`,
+  })}
 
 <section class="card" id="eintragen">
-  <details class="add-own"${openNew ? html` open` : ''}>
-    <summary>➕ Druck eintragen</summary>
+  <details class="disclosure disclosure-lg"${openNew ? html` open` : ''}>
+    <summary>${icon('plus-circle', { size: 18 })}<span>Druck eintragen</span></summary>
     <p class="muted small">Für alles, was nicht über die Warteschlange lief – z. B. was du für dich selbst
       gedruckt hast, oder ältere Drucke von früher.</p>
     <form method="post" action="/admin/archiv/eintragen" class="form">
       <input type="hidden" name="csrf_token" value="${ctx.csrf}">
       ${jobFields(newValues, { admin: true, printedDate: true })}
-      <button class="btn btn-primary" type="submit">Ins Archiv aufnehmen</button>
+      <button class="btn btn-primary" type="submit">${icon('archive', { size: 18 })}<span>Ins Archiv aufnehmen</span></button>
     </form>
   </details>
 
-  <details class="add-own"${openImport ? html` open` : ''}>
-    <summary>📋 Mehrere MakerWorld-Links auf einmal eintragen</summary>
+  <details class="disclosure disclosure-lg"${openImport ? html` open` : ''}>
+    <summary>${icon('link', { size: 18 })}<span>Mehrere MakerWorld-Links auf einmal eintragen</span></summary>
     <form method="post" action="/admin/archiv/import" class="form">
       <input type="hidden" name="csrf_token" value="${ctx.csrf}">
       <label class="field">
-        <span>Links <em>*</em> <small>(einer pro Zeile, höchstens 50)</small></span>
+        <span class="label">Links <em>*</em> <small>(einer pro Zeile, höchstens 50)</small></span>
         <textarea name="links" rows="6" required spellcheck="false"
                   placeholder="https://makerworld.com/de/models/…&#10;https://makerworld.com/de/models/…">${importValues.links}</textarea>
       </label>
       <div class="row row-even">
         <label class="field">
-          <span>Für wen <em>*</em></span>
+          <span class="label">Für wen <em>*</em></span>
           <input name="requester" maxlength="60" required value="${importValues.requester}">
         </label>
         <label class="field">
-          <span>Gedruckt am <em>*</em></span>
+          <span class="label">Gedruckt am <em>*</em></span>
           <input name="printed_at" type="date" required value="${importValues.printedAt}">
         </label>
       </div>
-      <button class="btn btn-primary" type="submit">Alle ins Archiv aufnehmen</button>
+      <button class="btn btn-primary" type="submit">${icon('archive', { size: 18 })}<span>Alle ins Archiv aufnehmen</span></button>
     </form>
   </details>
 </section>
 
 <section class="card">
   <form method="get" action="/admin/archiv" class="archive-filters" role="search">
-    <input id="archiv-suche" name="q" type="search" value="${q}" autocomplete="off"
-           placeholder="Suchen, z. B. Drache, Mama, 2025" aria-label="Archiv durchsuchen">
+    ${searchField(html`<input id="archiv-suche" name="q" type="search" value="${q}" autocomplete="off"
+           placeholder="Suchen, z. B. Drache, Mama, 2025" aria-label="Archiv durchsuchen">`)}
     <select name="person" aria-label="Person">
       <option value="">Alle Personen</option>
       ${people.map((p) => html`<option value="${p.name}"${p.name.toLowerCase() === person.toLowerCase() ? html` selected` : ''}>${p.name} (${p.count})</option>`)}
@@ -604,37 +776,13 @@ function adminArchive(ctx, {
 
   ${total ? html`
   <ul class="joblist" id="archiv-liste">
-    ${entries.map(({ job, text, visible }) => html`
-      <li class="job job-admin" id="auftrag-${job.id}" data-search="${text}" data-qty="${job.quantity || 1}"
-          data-person="${job.requester}"${visible ? '' : html` hidden`}>
-        ${thumb(job)}
-        <div class="job-body">
-          <div class="job-title">${job.title} ${linkBadge(job, { warnMissing: false })}</div>
-          <div class="meta">
-            <span>📅 ${ctx.day(job.finishedAt)}</span>
-            <span>👤 ${job.requester}</span>
-            ${job.quantity > 1 ? html`<span>🔢 ${job.quantity}×</span>` : ''}
-            ${job.color ? html`<span>🎨 ${job.color}</span>` : ''}
-          </div>
-          ${job.notes ? html`<p class="notes">📝 ${job.notes}</p>` : ''}
-          ${job.adminNote ? html`<p class="notes admin-note">🛠️ ${job.adminNote}</p>` : ''}
-          <div class="actions">
-            ${action(ctx, job, 'nochmal', '🔁 Nochmal drucken', { cls: 'btn btn-primary btn-small', back })}
-            <a class="btn btn-small" href="${editLink(job)}">Bearbeiten</a>
-            ${action(ctx, job, 'delete', 'Löschen', {
-              cls: 'btn btn-small btn-danger-soft', confirm: `„${job.title}“ aus dem Archiv löschen?`, back,
-            })}
-          </div>
-        </div>
-      </li>`)}
+    ${entries.map(({ job, text, visible }) => archiveEntry(ctx, job, { text, visible, back, day: ctx.day }))}
   </ul>
   <p class="empty" id="archiv-leer"${stats.prints ? html` hidden` : ''}>Nichts gefunden – versuch es mit einem anderen Suchwort.</p>`
-  : html`<p class="empty">Noch keine Drucke im Archiv. Sobald du in der Warteschlange auf <strong>✓ Gedruckt</strong>
-      klickst, landet der Auftrag hier. Eigene oder ältere Drucke trägst du oben mit <strong>➕ Druck eintragen</strong> ein.</p>`}
-</section>
-
-<script src="/archiv.js" defer></script>`;
-  return layout(ctx, { title: 'Druck-Archiv', body });
+    : empty('archive', html`Noch keine Drucke im Archiv. Sobald du in der Warteschlange auf <strong>Gedruckt</strong>
+      tippst, landet der Auftrag hier. Eigene oder ältere Drucke trägst du oben mit <strong>Druck eintragen</strong> ein.`)}
+</section>`;
+  return layout(ctx, { title: 'Druck-Archiv', body, scripts: html`<script src="/archiv.js" defer></script>` });
 }
 
 /** Eigenständige HTML-Datei mit allen Drucken – mit Suche, Filter und Sortierung, auch offline. */
@@ -645,36 +793,33 @@ function archiveExport({ entries, people, stats, exportedAt, day }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Druck-Archiv – Stand ${exportedAt}</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
   <style>
 ${raw(EXPORT_CSS)}
-    body { padding-top: 24px; }
+    .page { padding-top: 24px; padding-bottom: 32px; }
     .export-foot { margin: 8px 0 32px; }
     @media print {
-      body { background: #fff; color: #000; padding: 0; }
+      body { background: #fff; color: #000; }
       .archive-filters, .export-foot { display: none !important; }
       .card { box-shadow: none; border: 0; padding: 0; }
       .job { break-inside: avoid; }
     }
   </style>
+  <script>${raw(IMAGE_FALLBACK)}</script>
 </head>
 <body>
-  <main class="wrap">
-    <div class="admin-head">
-      <h1>📚 Druck-Archiv</h1>
-      <span class="muted small">Stand: ${exportedAt}</span>
-    </div>
+  <main class="wrap page">
+    ${pageHead('Druck-Archiv', { iconName: 'archive', sub: `Stand: ${exportedAt}` })}
     <section class="card">
       <form id="filter" class="archive-filters" role="search">
-        <input id="suche" type="search" autocomplete="off" autofocus
-               placeholder="Suchen, z. B. Drache, Mama, 2025" aria-label="Archiv durchsuchen">
+        ${searchField(html`<input id="suche" type="search" autocomplete="off" autofocus
+               placeholder="Suchen, z. B. Drache, Mama, 2025" aria-label="Archiv durchsuchen">`)}
         <select id="person" aria-label="Person">
           <option value="">Alle Personen</option>
           ${people.map((p) => html`<option value="${p.name}">${p.name} (${p.count})</option>`)}
         </select>
         <select id="sortierung" aria-label="Sortierung">
-          <option value="neu">Neueste zuerst</option>
-          <option value="alt">Älteste zuerst</option>
+          <option value="neu">Neueste</option>
+          <option value="alt">Älteste</option>
           <option value="titel">Titel A–Z</option>
           <option value="person">Nach Person</option>
         </select>
@@ -683,22 +828,7 @@ ${raw(EXPORT_CSS)}
       ${statsLine(stats)}
 
       <ul class="joblist" id="liste">
-        ${entries.map(({ job, text }) => html`
-        <li class="job" data-search="${text}" data-person="${job.requester}" data-date="${job.finishedAt}"
-            data-title="${job.title}" data-qty="${job.quantity || 1}">
-          ${thumb(job)}
-          <div class="job-body">
-            <div class="job-title">${job.title} ${linkBadge(job, { warnMissing: false })}</div>
-            <div class="meta">
-              <span>📅 ${day(job.finishedAt)}</span>
-              <span>👤 ${job.requester}</span>
-              ${job.quantity > 1 ? html`<span>🔢 ${job.quantity}×</span>` : ''}
-              ${job.color ? html`<span>🎨 ${job.color}</span>` : ''}
-            </div>
-            ${job.notes ? html`<p class="notes">📝 ${job.notes}</p>` : ''}
-            ${job.adminNote ? html`<p class="notes admin-note">🛠️ ${job.adminNote}</p>` : ''}
-          </div>
-        </li>`)}
+        ${entries.map(({ job, text }) => archiveEntry(null, job, { text, admin: false, day }))}
       </ul>
       <p class="empty" id="leer"${entries.length ? html` hidden` : ''}>${
         entries.length ? 'Nichts gefunden – versuch es mit einem anderen Suchwort.' : 'Noch keine Drucke im Archiv.'}</p>
@@ -714,16 +844,12 @@ ${raw(EXPORT_JS)}
 }
 
 function errorPage(ctx, { status, message }) {
-  const body = html`
-<section class="card narrow-card">
-  <h1>${status === 404 ? 'Nicht gefunden' : 'Hoppla'}</h1>
-  <p class="lead">${message}</p>
-  <p><a href="/">Zur Startseite</a></p>
-</section>`;
+  const body = authCard(status === 404 ? 'Nicht gefunden' : 'Hoppla', message, html`
+  <a class="btn btn-primary btn-block" href="/">${icon('home', { size: 18 })}<span>Zur Startseite</span></a>`);
   return layout(ctx, { title: 'Fehler', body });
 }
 
 module.exports = {
-  index, adminLogin, adminSetup, adminUsers, adminLog, adminDashboard, adminEdit, adminArchive, archiveExport,
-  errorPage,
+  index, publicQueue, adminLogin, adminSetup, adminUsers, adminLog, adminDashboard, adminEdit, adminArchive,
+  archiveExport, errorPage,
 };

@@ -38,6 +38,15 @@ neue Anfragen, Warteschlange, Archiv – liegen in einer **MariaDB/MySQL-Datenba
 6. **Verlauf** – Im Menü **Verlauf** steht, wer wann was gemacht hat: neue
    Anfragen, Freigaben, Gedrucktes, Löschungen, Anmeldungen, Kontoänderungen.
 
+## Als App aufs Handy
+
+Die Seite ist fürs Handy gebaut (Tab-Leiste unten, große Knöpfe, hell und dunkel)
+und lässt sich wie eine App auf den Home-Bildschirm legen:
+
+- **iPhone:** Seite in Safari öffnen → Teilen → **Zum Home-Bildschirm**.
+- **Android:** Seite in Chrome öffnen → Menü (⋮) → **App installieren** bzw.
+  **Zum Startbildschirm hinzufügen**.
+
 ## Druck-Archiv
 
 Unter **Archiv** (oben im Menü, sobald du als Admin angemeldet bist) findest du

@@ -161,7 +161,7 @@ test('Der Verlauf zeigt, wer was gemacht hat', async () => {
   assert.ok(entries.slice(0, 3).every((e) => e.jobId === id && e.jobTitle === '<b>Vase</b>'));
 
   const page = (await admin.get('/admin/verlauf')).text;
-  assert.match(page, /✅ Freigegeben <strong>&lt;b&gt;Vase&lt;\/b&gt;<\/strong>/);
+  assert.match(page, /Freigegeben <strong>&lt;b&gt;Vase&lt;\/b&gt;<\/strong>/);
   assert.match(page, /Lena \(öffentlich\)/);
   assert.equal((await env.client().get('/admin/verlauf')).location, '/admin/login');
 });
