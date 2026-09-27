@@ -6,8 +6,9 @@ frei, sortierst die Warteschlange, und die **obersten 3 Aufträge** landen
 automatisch in deinem **Discord-Kanal** – aber **nur, wenn sich an ihnen etwas
 ändert**.
 
-Läuft mit **Node.js** (ab Version 18), z. B. direkt in **Plesk**. Es wird keine
-Datenbank gebraucht – alles liegt in kleinen Dateien im Ordner `data/`.
+Läuft mit **Node.js** (ab Version 18), z. B. direkt in **Plesk**. Alle Aufträge –
+neue Anfragen, Warteschlange, Archiv – liegen in einer **MariaDB/MySQL-Datenbank**
+(ohne Datenbank-Einstellungen notfalls in Dateien im Ordner `data/`).
 
 ## So funktioniert's
 
@@ -114,10 +115,22 @@ Im selben Node.js-Fenster unter **Benutzerdefinierte Umgebungsvariablen**
 | `COOKIE_SECURE` | `true`, sobald HTTPS aktiv ist |
 | `DISCORD_PING_USER_ID` | optional: deine Discord-Benutzer-ID – dann wirst du bei neuen Anfragen angepingt und bekommst sicher eine Push-Nachricht |
 | `DISCORD_WEBHOOK_URL_ANFRAGEN` | optional: eigener Webhook, falls neue Anfragen in einen anderen Kanal sollen |
+| `DB_HOST` | `localhost` |
+| `DB_PORT` | `3306` |
+| `DB_NAME` | Name der Datenbank (Plesk → **Datenbanken**) |
+| `DB_USER` | Datenbank-Benutzer (Plesk → Datenbanken → **Benutzerverwaltung**) |
+| `DB_PASSWORD` | Passwort dieses Datenbank-Benutzers |
 
 Deine Benutzer-ID findest du so: Discord → Einstellungen → Erweitert →
 **Entwicklermodus** einschalten, dann Rechtsklick auf deinen Namen → **Benutzer-ID
 kopieren**.
+
+**Datenbank:** Die App legt beim ersten Start selbst zwei Tabellen an:
+`druck_auftraege` (alle Aufträge) und `druck_zustand` (interne Merker, z. B. was
+zuletzt an Discord ging). Andere Tabellen in der Datenbank werden nicht angefasst.
+Hattest du vorher schon Aufträge in `data/auftraege.json`, werden sie beim ersten
+Start automatisch übernommen; die Datei heißt danach `auftraege.json.importiert`.
+In **phpMyAdmin** (Plesk → Datenbanken) kannst du alles ansehen.
 
 Weitere, seltener gebrauchte Einstellungen stehen in `.env.example`. Statt in
 Plesk kannst du die Werte auch in eine Datei `.env` im Anwendungsstamm schreiben
@@ -132,8 +145,10 @@ Discord senden** klicken – dann siehst du sofort, ob der Webhook funktioniert.
 ### Updates
 
 Neuen Code hochladen (bzw. in Plesk bei Git **Pull** / **Bereitstellen**), dann
-**NPM install** und **App neu starten**. Den Ordner `data/` dabei **nicht
-löschen** – dort liegen alle Aufträge. Ihn ab und zu zu sichern schadet nicht.
+**NPM install** und **App neu starten**. Die Aufträge liegen in der Datenbank;
+für Sicherungen nutze in Plesk **Sichern & Wiederherstellen** oder den Export
+in phpMyAdmin. Den Ordner `data/` trotzdem nicht löschen (dort liegt der Schlüssel
+für die Logins).
 
 ## Ohne Plesk
 
@@ -143,6 +158,12 @@ ADMIN_PASSWORD=… DISCORD_WEBHOOK_URL=… npm start   # läuft auf Port 3000 (o
 ```
 
 ## Hinweise
+
+- **„Datenbank nicht erreichbar“?** Die Seite nennt den Grund (falsches Passwort,
+  Datenbank gibt es nicht, Server nicht erreichbar …). Steht dort, dass Benutzer
+  oder Passwort nicht stimmen, obwohl sie richtig sind, probier `DB_HOST=127.0.0.1`
+  – oder trag unter `DB_SOCKET` die Socket-Datei ein (meist
+  `/var/run/mysqld/mysqld.sock` oder `/var/lib/mysql/mysql.sock`).
 
 - **MakerWorld-Infos:** Beim Einreichen versucht die App, Titel und Vorschaubild
   von der MakerWorld-Seite zu laden. Blockiert MakerWorld das (Bot-Schutz),
@@ -162,5 +183,9 @@ ADMIN_PASSWORD=… DISCORD_WEBHOOK_URL=… npm start   # läuft auf Port 3000 (o
 
 ```bash
 npm install
-npm test
+npm test                  # schnell, mit Datei-Speicher
+TEST_DB=mysql://benutzer:passwort@127.0.0.1:3306/testdatenbank npm test   # alles gegen MariaDB
 ```
+
+Mit `TEST_DB` laufen alle Tests zusätzlich gegen eine echte MariaDB; jeder Test
+legt dabei eigene Tabellen an und löscht sie danach wieder.

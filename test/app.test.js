@@ -17,7 +17,7 @@ const text = (payload) => JSON.stringify(payload);
 async function approveAll(admin, ...titles) {
   for (const title of titles) {
     await admin.submit({ title });
-    await admin.post(`/admin/auftrag/${env.idOf(title)}/approve`);
+    await admin.post(`/admin/auftrag/${await env.idOf(title)}/approve`);
   }
 }
 
@@ -27,7 +27,7 @@ test('Einreichen legt eine Anfrage an, die öffentlich noch nicht auftaucht', as
   const client = env.client();
   const res = await client.submit({ title: 'Kabelhalter', color: 'Rot', notes: 'fürs Auto' });
   assert.equal(res.status, 303);
-  const [job] = env.byStatus('pending');
+  const [job] = (await env.byStatus('pending'));
   assert.equal(job.title, 'Kabelhalter');
   assert.equal(job.requester, 'Oma');
   assert.equal(job.makerworldUrl, null);
@@ -80,7 +80,7 @@ test('Fehler bei der Anfrage-Meldung erscheint im Admin-Bereich', async () => {
 
 test('Nur MakerWorld-Link reicht, Titel wird ergänzt', async () => {
   await env.client().submit({ makerworld_url: 'makerworld.com/de/models/123456-benchy' });
-  const [job] = env.byStatus('pending');
+  const [job] = (await env.byStatus('pending'));
   assert.equal(job.title, 'MakerWorld-Modell 123456');
   assert.equal(job.makerworldUrl, 'https://makerworld.com/de/models/123456-benchy');
 });
@@ -89,7 +89,7 @@ test('Ohne Titel und ohne Link gibt es eine Fehlermeldung', async () => {
   const res = await env.client().submit();
   assert.equal(res.status, 400);
   assert.match(res.text, /was gedruckt werden soll/);
-  assert.equal(env.data().jobs.length, 0);
+  assert.equal((await env.data()).jobs.length, 0);
 });
 
 test('Kaputte oder gefährliche Links werden abgelehnt', async () => {
@@ -98,7 +98,7 @@ test('Kaputte oder gefährliche Links werden abgelehnt', async () => {
     const res = await client.submit({ title: 'x', makerworld_url: url });
     assert.equal(res.status, 400, url);
   }
-  assert.equal(env.data().jobs.length, 0);
+  assert.equal((await env.data()).jobs.length, 0);
 });
 
 test('Eingaben werden in der Seite maskiert', async () => {
@@ -111,13 +111,13 @@ test('Eingaben werden in der Seite maskiert', async () => {
 
 test('Honeypot-Feld verwirft Bot-Einsendungen', async () => {
   await env.client().submit({ title: 'Spam', website: 'http://spam.example' });
-  assert.equal(env.data().jobs.length, 0);
+  assert.equal((await env.data()).jobs.length, 0);
 });
 
 test('POST ohne CSRF-Token wird abgelehnt', async () => {
   const res = await env.client().request('POST', '/auftrag', { requester: 'Oma', title: 'x' });
   assert.equal(res.status, 400);
-  assert.equal(env.data().jobs.length, 0);
+  assert.equal((await env.data()).jobs.length, 0);
 });
 
 test('Zu viel Text ergibt eine verständliche Fehlerseite', async () => {
@@ -130,7 +130,7 @@ test('Viele gleichzeitige Einsendungen gehen nicht verloren', async () => {
   const client = env.client();
   await client.csrf();
   await Promise.all(Array.from({ length: 25 }, (_, i) => client.submit({ title: `Teil ${i}` })));
-  const ids = env.data().jobs.map((job) => job.id);
+  const ids = (await env.data()).jobs.map((job) => job.id);
   assert.equal(ids.length, 25);
   assert.equal(new Set(ids).size, 25);
 });
@@ -165,7 +165,7 @@ test('Familien-Passwort schützt die Startseite', async () => {
   const client = env.client();
   assert.equal((await client.get('/')).location, '/zugang');
   assert.equal((await client.submit({ title: 'x' })).location, '/zugang');
-  assert.equal(env.data().jobs.length, 0);
+  assert.equal((await env.data()).jobs.length, 0);
   assert.equal((await client.post('/zugang', { password: 'falsch' })).status, 401);
   await client.post('/zugang', { password: 'familie' });
   assert.equal((await client.get('/')).status, 200);
@@ -185,36 +185,36 @@ test('Discord bekommt nur dann eine Nachricht, wenn sich die Top 3 ändern', asy
   await approveAll(admin, 'D', 'E'); // landen auf Platz 4 und 5
   assert.equal(env.sent.length, 3);
 
-  await admin.post(`/admin/auftrag/${env.idOf('E')}/up`); // tauscht Platz 4 und 5
-  assert.deepEqual(env.queueTitles(), ['A', 'B', 'C', 'E', 'D']);
+  await admin.post(`/admin/auftrag/${await env.idOf('E')}/up`); // tauscht Platz 4 und 5
+  assert.deepEqual((await env.queueTitles()), ['A', 'B', 'C', 'E', 'D']);
   assert.equal(env.sent.length, 3);
 
-  await admin.post(`/admin/auftrag/${env.idOf('D')}/top`);
-  assert.deepEqual(env.queueTitles(), ['D', 'A', 'B', 'C', 'E']);
+  await admin.post(`/admin/auftrag/${await env.idOf('D')}/top`);
+  assert.deepEqual((await env.queueTitles()), ['D', 'A', 'B', 'C', 'E']);
   assert.deepEqual(topTitles(env.sent.at(-1)), ['D', 'A', 'B']);
   assert.match(env.sent.at(-1).content, /als Nächstes: \*\*D\*\*/);
 
-  await admin.post(`/admin/auftrag/${env.idOf('D')}/done`);
-  assert.deepEqual(env.queueTitles(), ['A', 'B', 'C', 'E']);
+  await admin.post(`/admin/auftrag/${await env.idOf('D')}/done`);
+  assert.deepEqual((await env.queueTitles()), ['A', 'B', 'C', 'E']);
   assert.deepEqual(topTitles(env.sent.at(-1)), ['A', 'B', 'C']);
   assert.equal(env.sent.length, 5);
 
-  await admin.post(`/admin/auftrag/${env.idOf('E')}/delete`);
+  await admin.post(`/admin/auftrag/${await env.idOf('E')}/delete`);
   assert.equal(env.sent.length, 5);
 });
 
 test('Ablehnen einer Anfrage schickt nichts an Discord', async () => {
   const admin = await env.admin();
   await admin.submit({ title: 'Nope' });
-  await admin.post(`/admin/auftrag/${env.idOf('Nope')}/reject`);
-  assert.equal(env.byStatus('rejected')[0].title, 'Nope');
+  await admin.post(`/admin/auftrag/${await env.idOf('Nope')}/reject`);
+  assert.equal((await env.byStatus('rejected'))[0].title, 'Nope');
   assert.deepEqual(env.sent, []);
 });
 
 test('Bearbeiten eines Top-Auftrags schickt ihn neu', async () => {
   const admin = await env.admin();
   await approveAll(admin, 'A');
-  await admin.post(`/admin/auftrag/${env.idOf('A')}/bearbeiten`, {
+  await admin.post(`/admin/auftrag/${await env.idOf('A')}/bearbeiten`, {
     requester: 'Oma', title: 'A', quantity: '2', admin_note: 'PETG',
   });
   assert.equal(env.sent.length, 2);
@@ -225,28 +225,28 @@ test('Bearbeiten eines Top-Auftrags schickt ihn neu', async () => {
 test('Admin kann eigene Aufträge direkt einreihen', async () => {
   const admin = await env.admin();
   await admin.post('/admin/auftrag/neu', { requester: 'Ich', title: 'Eigenes Teil' });
-  assert.deepEqual(env.queueTitles(), ['Eigenes Teil']);
+  assert.deepEqual((await env.queueTitles()), ['Eigenes Teil']);
   assert.equal(env.sent.length, 1);
 });
 
 test('Zurückholen und Freigabe zurücknehmen', async () => {
   const admin = await env.admin();
   await approveAll(admin, 'A', 'B');
-  await admin.post(`/admin/auftrag/${env.idOf('A')}/done`);
-  await admin.post(`/admin/auftrag/${env.idOf('A')}/restore`);
-  assert.deepEqual(env.queueTitles(), ['B', 'A']);
-  await admin.post(`/admin/auftrag/${env.idOf('B')}/unapprove`);
-  assert.deepEqual(env.queueTitles(), ['A']);
-  assert.deepEqual(env.byStatus('pending').map((job) => job.title), ['B']);
+  await admin.post(`/admin/auftrag/${await env.idOf('A')}/done`);
+  await admin.post(`/admin/auftrag/${await env.idOf('A')}/restore`);
+  assert.deepEqual((await env.queueTitles()), ['B', 'A']);
+  await admin.post(`/admin/auftrag/${await env.idOf('B')}/unapprove`);
+  assert.deepEqual((await env.queueTitles()), ['A']);
+  assert.deepEqual((await env.byStatus('pending')).map((job) => job.title), ['B']);
 });
 
 test('Unmögliche Aktionen werden verweigert', async () => {
   const admin = await env.admin();
   await admin.submit({ title: 'A' });
-  await admin.post(`/admin/auftrag/${env.idOf('A')}/done`);
-  assert.equal(env.byStatus('pending')[0].title, 'A');
+  await admin.post(`/admin/auftrag/${await env.idOf('A')}/done`);
+  assert.equal((await env.byStatus('pending'))[0].title, 'A');
   assert.equal((await admin.post('/admin/auftrag/999/approve')).status, 404);
-  assert.equal((await admin.post(`/admin/auftrag/${env.idOf('A')}/quatsch`)).status, 404);
+  assert.equal((await admin.post(`/admin/auftrag/${await env.idOf('A')}/quatsch`)).status, 404);
 });
 
 // --- Discord ----------------------------------------------------------------------------

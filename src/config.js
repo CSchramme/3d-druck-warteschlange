@@ -44,6 +44,24 @@ function loadSecretKey(dataDir, fromEnv) {
   }
 }
 
+/** Datenbank-Zugang (MariaDB/MySQL) – nur wenn DB_NAME oder DB_USER gesetzt ist. */
+function loadDbConfig(env) {
+  if (!env.DB_NAME && !env.DB_USER) return null;
+  const prefix = env.DB_TABLE_PREFIX ?? 'druck_';
+  if (!/^[A-Za-z0-9_]{0,20}$/.test(prefix)) {
+    throw new Error('DB_TABLE_PREFIX darf nur Buchstaben, Ziffern und _ enthalten.');
+  }
+  return {
+    host: env.DB_HOST || 'localhost',
+    port: parseInt(env.DB_PORT, 10) || 3306,
+    socketPath: env.DB_SOCKET || '',
+    user: env.DB_USER || env.DB_NAME,
+    password: env.DB_PASSWORD || '',
+    database: env.DB_NAME || env.DB_USER,
+    tablePrefix: prefix,
+  };
+}
+
 function loadConfig(overrides = {}) {
   loadEnvFile(path.join(ROOT, '.env'));
   const env = process.env;
@@ -61,6 +79,7 @@ function loadConfig(overrides = {}) {
     fetchMakerworldInfo: envBool(env.FETCH_MAKERWORLD_INFO, true),
     cookieSecure: envBool(env.COOKIE_SECURE, false),
     secretKey: env.SECRET_KEY || '',
+    db: loadDbConfig(env),
     ...overrides,
   };
 

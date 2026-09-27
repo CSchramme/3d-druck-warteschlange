@@ -7,7 +7,7 @@ const discord = require('./discord');
 const forms = require('./forms');
 const jobs = require('./jobs');
 const views = require('./views');
-const { createStore } = require('./store');
+const { createStorage, databaseHint } = require('./storage');
 const { sessionMiddleware, csrfToken, csrfValid, passwordMatches } = require('./session');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -48,11 +48,12 @@ const ACTIONS = {
 
 /**
  * Baut die Express-App. deps.postWebhook ersetzt (für Tests) den echten
- * Discord-Versand.
+ * Discord-Versand, deps.store den Speicher.
  */
 function createApp(config, deps = {}) {
-  const store = createStore(config.dataDir);
+  const store = deps.store || createStorage(config);
   const app = express();
+  app.locals.store = store;
   app.disable('x-powered-by');
 
   const dateFormat = new Intl.DateTimeFormat('de-DE', {
@@ -89,6 +90,20 @@ function createApp(config, deps = {}) {
     next();
   });
 
+  // Beim ersten Aufruf Tabellen anlegen bzw. prüfen, ob die Datenbank erreichbar ist.
+  app.use(async (req, res, next) => {
+    try {
+      await store.ready();
+    } catch (err) {
+      console.error('Datenbank nicht erreichbar:', err.code || '', err.message);
+      return res.page('errorPage', {
+        status: 503,
+        message: `${databaseHint(err)} Bitte die Einstellungen prüfen und die App neu starten.`,
+      }, 503);
+    }
+    next();
+  });
+
   app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
   app.use((req, res, next) => {
@@ -122,8 +137,8 @@ function createApp(config, deps = {}) {
 
   // --- Öffentlich ---------------------------------------------------------------
 
-  function renderIndex(req, res, values, status = 200) {
-    const data = store.readData();
+  async function renderIndex(req, res, values, status = 200) {
+    const data = await store.readData();
     res.page('index', {
       values: values || { requester: req.session.name || '', quantity: 1 },
       queue: jobs.queue(data),
@@ -193,13 +208,13 @@ function createApp(config, deps = {}) {
     res.redirect(303, '/');
   });
 
-  function renderDashboard(req, res, newValues, status = 200) {
-    const data = store.readData();
+  async function renderDashboard(req, res, newValues, status = 200) {
+    const data = await store.readData();
     res.page('adminDashboard', {
       pending: jobs.pending(data),
       queue: jobs.queue(data),
       finished: jobs.finished(data),
-      discord: discord.status(store, config),
+      discord: await discord.status(store, config),
       topN: config.discordTopN,
       newValues: newValues || { requester: req.session.name || '', quantity: 1 },
       openNew: Boolean(newValues),
@@ -225,8 +240,8 @@ function createApp(config, deps = {}) {
     res.redirect(303, `/admin#auftrag-${job.id}`);
   });
 
-  app.get('/admin/auftrag/:id/bearbeiten', requireAdmin, (req, res, next) => {
-    const job = jobs.get(store.readData(), Number(req.params.id));
+  app.get('/admin/auftrag/:id/bearbeiten', requireAdmin, async (req, res, next) => {
+    const job = jobs.get(await store.readData(), Number(req.params.id));
     if (!job) return next();
     const back = safeBack(req.query.back, '/admin');
     res.page('adminEdit', { job, values: { ...job, printedAt: isoDay(job.finishedAt) }, back });
@@ -234,7 +249,7 @@ function createApp(config, deps = {}) {
 
   app.post('/admin/auftrag/:id/bearbeiten', requireAdmin, async (req, res, next) => {
     const id = Number(req.params.id);
-    const job = jobs.get(store.readData(), id);
+    const job = jobs.get(await store.readData(), id);
     if (!job) return next();
     const back = safeBack(req.body.back, '/admin');
     const { values, errors } = forms.parseJobForm(req.body, { admin: true });
@@ -326,8 +341,8 @@ function createApp(config, deps = {}) {
     });
   }
 
-  function renderArchive(req, res, extra = {}, status = 200) {
-    const data = store.readData();
+  async function renderArchive(req, res, extra = {}, status = 200) {
+    const data = await store.readData();
     const filters = archiveFilters(req.query);
     const entries = archiveEntries(data, filters).slice(0, 2000);
     const visible = entries.filter((entry) => entry.visible).map((entry) => entry.job);
@@ -354,8 +369,8 @@ function createApp(config, deps = {}) {
 
   app.get('/admin/archiv', requireAdmin, (req, res) => renderArchive(req, res));
 
-  app.get('/admin/archiv.csv', requireAdmin, (req, res) => {
-    const rows = archiveEntries(store.readData(), archiveFilters(req.query))
+  app.get('/admin/archiv.csv', requireAdmin, async (req, res) => {
+    const rows = archiveEntries(await store.readData(), archiveFilters(req.query))
       .filter((entry) => entry.visible)
       .map(({ job }) => [day(job.finishedAt), job.title, job.requester, job.quantity, job.color,
         job.makerworldUrl, job.notes, job.adminNote]);
@@ -370,8 +385,8 @@ function createApp(config, deps = {}) {
     res.type('text/csv; charset=utf-8').send(`\ufeff${csv}\r\n`);
   });
 
-  app.get('/admin/archiv.html', requireAdmin, (req, res) => {
-    const data = store.readData();
+  app.get('/admin/archiv.html', requireAdmin, async (req, res) => {
+    const data = await store.readData();
     const entries = archiveEntries(data, { q: '', person: '', sort: 'neu' });
     const all = entries.map((entry) => entry.job);
     const file = views.archiveExport({

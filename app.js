@@ -14,6 +14,16 @@ if (!config.discordWebhookUrl) {
 }
 
 const port = process.env.PORT || 3000;
-createApp(config).listen(port, () => {
+const app = createApp(config);
+app.listen(port, () => {
   console.log(`3D-Druck-Warteschlange läuft auf Port ${port}`);
 });
+
+// Gleich beim Start prüfen, ob der Speicher bereit ist (legt bei Bedarf die Tabellen an).
+const { store } = app.locals;
+store.ready()
+  .then(() => console.log(store.kind === 'mariadb'
+    ? `Datenbank bereit: ${config.db.database} (Tabellen ${store.tables.jobs}, ${store.tables.state})`
+    : `Speicher: Dateien in ${config.dataDir}`))
+  .catch((err) => console.error(`Datenbank nicht erreichbar (${err.code || err.message}):`,
+    require('./src/storage').databaseHint(err)));

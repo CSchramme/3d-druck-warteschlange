@@ -5,7 +5,30 @@ const os = require('os');
 const path = require('path');
 
 const { createApp } = require('../src/server');
-const { createStore } = require('../src/store');
+const { createFileStore } = require('../src/store');
+const { createMariaDbStore } = require('../src/store-mariadb');
+
+// Mit TEST_DB=mysql://benutzer:passwort@127.0.0.1:3306/datenbank laufen alle Tests
+// gegen MariaDB – jede Test-App bekommt eigene Tabellen (Präfix), die am Ende
+// wieder gelöscht werden.
+let dbTestCounter = 0;
+function testDbConfig() {
+  if (!process.env.TEST_DB) return null;
+  const url = new URL(process.env.TEST_DB);
+  return {
+    host: url.hostname,
+    port: Number(url.port) || 3306,
+    user: decodeURIComponent(url.username),
+    password: decodeURIComponent(url.password),
+    database: url.pathname.slice(1),
+    tablePrefix: `t${process.pid}_${++dbTestCounter}_`,
+  };
+}
+
+function createTestStore(dataDir) {
+  const db = testDbConfig();
+  return db ? createMariaDbStore(db, { importDir: dataDir }) : createFileStore(dataDir);
+}
 
 class Client {
   constructor(base) {
@@ -59,7 +82,7 @@ class Client {
 }
 
 /** Startet die App auf einem freien Port mit leerem Datenordner. */
-async function startApp(overrides = {}) {
+async function startApp(overrides = {}, { store: givenStore } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'druck-test-'));
   const config = {
     dataDir,
@@ -89,7 +112,9 @@ async function startApp(overrides = {}) {
     /** Wartet, bis alle Hintergrund-Meldungen raus sind. */
     settle: () => Promise.all(background),
   };
+  const store = givenStore || createTestStore(dataDir);
   const app = createApp(config, {
+    store,
     postWebhook: (url, payload) => env.post(url, payload),
     onBackgroundTask: (promise) => background.push(promise),
   });
@@ -97,22 +122,26 @@ async function startApp(overrides = {}) {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
   });
   const base = `http://127.0.0.1:${server.address().port}`;
-  const store = createStore(dataDir);
 
   return Object.assign(env, {
+    store,
+    dataDir,
     client: () => new Client(base),
     admin: () => new Client(base).loginAdmin(),
     data: () => store.readData(),
-    byStatus: (status) => store.readData().jobs.filter((job) => job.status === status),
-    queueTitles: () => require('../src/jobs').queue(store.readData()).map((job) => job.title),
-    idOf: (title) => store.readData().jobs.find((job) => job.title === title).id,
-    close: () => new Promise((resolve) => {
-      server.closeAllConnections?.();
-      server.close(() => {
-        fs.rmSync(dataDir, { recursive: true, force: true });
-        resolve();
+    byStatus: async (status) => (await store.readData()).jobs.filter((job) => job.status === status),
+    queueTitles: async () => require('../src/jobs').queue(await store.readData()).map((job) => job.title),
+    idOf: async (title) => (await store.readData()).jobs.find((job) => job.title === title).id,
+    close: async () => {
+      await env.settle();
+      await new Promise((resolve) => {
+        server.closeAllConnections?.();
+        server.close(resolve);
       });
-    }),
+      if (store.dropTables) await store.dropTables().catch(() => {});
+      await store.close();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    },
   });
 }
 

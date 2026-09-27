@@ -1,6 +1,8 @@
 'use strict';
 
-// Speichert alles in JSON-Dateien im Datenordner – keine Datenbank nötig.
+// Datei-Speicher: alles in JSON-Dateien im Datenordner. Wird genutzt, wenn keine
+// Datenbank eingestellt ist (und in den schnellen Tests). Gleiche Schnittstelle
+// wie der MariaDB-Speicher in store-mariadb.js.
 // Plesk (Passenger) startet bei Bedarf mehrere Prozesse; ein Sperrordner sorgt
 // dafür, dass immer nur einer gleichzeitig schreibt.
 
@@ -12,7 +14,7 @@ const LOCK_TIMEOUT_MS = 15_000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function createStore(dataDir) {
+function createFileStore(dataDir) {
   function file(name) {
     return path.join(dataDir, `${name}.json`);
   }
@@ -65,8 +67,11 @@ function createStore(dataDir) {
   const emptyData = () => ({ nextId: 1, jobs: [] });
 
   return {
+    kind: 'datei',
+    async ready() {},
+
     /** Aktueller Stand aller Aufträge (nur lesen). */
-    readData: () => read('auftraege', emptyData),
+    readData: async () => read('auftraege', emptyData),
 
     /** Ändert die Aufträge unter Sperre; fn bekommt die Daten und darf sie verändern. */
     updateData: (fn) =>
@@ -77,10 +82,11 @@ function createStore(dataDir) {
         return result;
       }),
 
-    readState: (name) => read(name, () => ({})),
-    writeState: (name, value) => write(name, value),
+    readState: async (name) => read(name, () => ({})),
+    writeState: async (name, value) => write(name, value),
     withLock,
+    async close() {},
   };
 }
 
-module.exports = { createStore };
+module.exports = { createFileStore };

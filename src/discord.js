@@ -165,9 +165,9 @@ async function postWebhook(url, payload) {
 
 function rememberError(store, err) {
   console.warn(`Discord-Versand fehlgeschlagen: ${err.message}`);
-  return store.withLock(STATE, () => {
-    store.writeState(STATE, {
-      ...store.readState(STATE),
+  return store.withLock(STATE, async () => {
+    await store.writeState(STATE, {
+      ...(await store.readState(STATE)),
       lastError: { at: new Date().toISOString(), message: err.message },
     });
   });
@@ -180,22 +180,22 @@ function rememberError(store, err) {
  */
 function sync(store, config, { force = false, post = postWebhook } = {}) {
   return store.withLock(STATE, async () => {
-    const top = jobs.queue(store.readData(), config.discordTopN);
+    const top = jobs.queue(await store.readData(), config.discordTopN);
     const current = snapshot(top);
-    const state = store.readState(STATE);
+    const state = await store.readState(STATE);
     if (!force && current === (state.lastTop ?? '[]')) return 'unchanged';
     if (!config.discordWebhookUrl) return 'disabled';
     try {
       await post(config.discordWebhookUrl, buildPayload(top, config.publicUrl));
     } catch (err) {
       console.warn(`Discord-Versand fehlgeschlagen: ${err.message}`);
-      store.writeState(STATE, {
+      await store.writeState(STATE, {
         ...state,
         lastError: { at: new Date().toISOString(), message: err.message },
       });
       return 'error';
     }
-    store.writeState(STATE, {
+    await store.writeState(STATE, {
       ...state,
       lastTop: current,
       lastSentAt: new Date().toISOString(),
@@ -212,7 +212,7 @@ async function notifyNewRequest(store, config, job, { post = postWebhook } = {})
   const payload = buildRequestPayload(job, {
     publicUrl: config.publicUrl,
     pingUserId: config.discordPingUserId,
-    pendingCount: jobs.pending(store.readData()).length,
+    pendingCount: jobs.pending(await store.readData()).length,
   });
   try {
     await post(webhook, payload);
@@ -223,8 +223,8 @@ async function notifyNewRequest(store, config, job, { post = postWebhook } = {})
   }
 }
 
-function status(store, config) {
-  const state = store.readState(STATE);
+async function status(store, config) {
+  const state = await store.readState(STATE);
   return {
     configured: Boolean(config.discordWebhookUrl),
     separateRequestsChannel: Boolean(config.discordRequestsWebhookUrl),
